@@ -1,0 +1,38 @@
+# --- Python & System ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.DS_Store
+Thumbs.db
+
+# --- Virtual Environment (QUAN TRỌNG) ---
+venv/
+.venv/
+env/
+.env/
+
+# --- Environment Variables (BẢO MẬT - QUAN TRỌNG) ---
+.env
+.env.*
+server/.env
+server/AI/.env
+
+# --- IDE Settings ---
+.vscode/
+.idea/
+
+# --- Database (Nếu dùng SQLite file) ---
+*.db
+*.sqlite3
+
+# --- Project Specific (Server) ---
+# Bỏ qua folder chứa file ghi âm upload lên
+server/static/recordings/
+static/recordings/
+*.webm
+*.mp3
+*.wav
+
+# Bỏ qua các file rác của AI (nếu có)
+server/AI/src/rag/data/

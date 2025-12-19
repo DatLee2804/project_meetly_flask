@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Layout, List, Clock, Table as TableIcon, Video, Plus, Settings, X, ChevronDown, MessageSquare, Search, LogOut } from 'lucide-react';
 import { User, Task, Project, Meeting, TaskStatus, Priority, ViewMode } from './types';
 import * as api from './api/mockApi'; // Hoặc import realApi
-
+import { AuthProvider, useAuth } from './context/AuthContext'; // Đảm bảo đã import
 // Import Components
 import Sidebar from './components/layout/Sidebar';
 import AuthPage from './pages/AuthPage';
@@ -19,13 +19,12 @@ import AddColumnModal from './components/modals/AddColumnModal';
 import EditColumnModal from './components/modals/EditColumnModal';
 import EditTaskModal from './components/modals/EditTaskModal';
 import CreateMeetingModal from './components/modals/CreateMeetingModal';
+import ChatWidget from './components/shared/ChatWidget';
 // Mock Teams View placeholder nếu chưa kịp tạo file
 const TeamsPlaceholder: React.FC<any> = () => <div className="p-8">Teams View Under Construction</div>;
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  
-  // Data State
+  const { user: currentUser, isLoading, login, logout } = useAuth();  // Data State
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
@@ -121,8 +120,11 @@ export default function App() {
     }
   }, [currentUser]);
 
+  if (isLoading) {
+    return <div className="flex h-screen items-center justify-center bg-slate-50">Loading...</div>;
+  }
   if (!currentUser) {
-    return <AuthPage onLogin={setCurrentUser} />;
+    return <AuthPage />; // Không cần truyền onLogin nữa
   }
 
   // Helper logic
@@ -130,10 +132,11 @@ export default function App() {
   const currentProjectMeetings = activeProject ? meetings.filter(m => m.projectId === activeProject.id) : [];
 
   const handleLogout = () => {
-      setCurrentUser(null);
-      setTasks([]);
-      setProjects([]);
-      localStorage.removeItem('access_token');
+    // setCurrentUser(null); <--- XÓA DÒNG NÀY (hoặc comment lại)
+    
+    setTasks([]);
+    setProjects([]);
+    logout(); // Hàm này đã lo việc set user về null rồi
   };
 
   const handleTaskMove = (taskId: string, newStatus: string) => {
@@ -277,6 +280,8 @@ export default function App() {
   };
 
   console.log("Dashboard view: ", dashboardView)
+
+  
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900">
       <Sidebar 
@@ -402,11 +407,7 @@ export default function App() {
       </main>
 
       {/* Floating Chat (Placeholder) */}
-      {showChat && (
-        <div className="fixed bottom-6 right-6 w-96 h-[500px] bg-white shadow-2xl rounded-2xl flex items-center justify-center border border-slate-200 z-50">
-           BotChat Integration Component Here
-        </div>
-      )}
+      <ChatWidget projectId={activeProject?.id} />
 
       {/* Modals placeholders */}
       {isTaskModalOpen && (
@@ -421,10 +422,9 @@ export default function App() {
       {isUserSettingsOpen && (
           <UserSettings 
             currentUser={currentUser} 
-            onUpdateUser={setCurrentUser} 
-            
-            // THÊM DÒNG NÀY:
-            onClose={() => setIsUserSettingsOpen(false)} 
+      // 👇 Sửa dòng này: thay setCurrentUser bằng login
+            onUpdateUser={login} 
+            onClose={() => setIsUserSettingsOpen(false)}
           />
       )}    
         <CreateProjectModal 

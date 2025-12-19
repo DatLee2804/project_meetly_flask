@@ -1,106 +1,105 @@
 # src/services/ai_service.py
 
 import os
-from sqlalchemy.orm import Session
-from src.schemas import task as task_schemas
-from src.schemas import meeting as meeting_schemas
-from src.repositories.meeting_repository import MeetingRepository
-from src.repositories.task_repository import TaskRepository
-from typing import List, Dict, Any
 import json
 from uuid import uuid4
+from typing import List, Dict, Any
+from sqlalchemy.orm import Session
+from fastapi import HTTPException, status
 
-# Import thư viện Gemini/Google GenAI
-# from google import genai
-# from google.genai import types 
-# Giả định: Sử dụng thư viện đã được cấu hình (ví dụ: client = genai.Client())
+from src.schemas import task as task_schemas
+from src.repositories.meeting_repository import MeetingRepository
+from src.repositories.task_repository import TaskRepository
 
-# Tạm thời Mock Gemini Client để giữ cho code chạy được mà không cần API Key ngay lập tức
-class MockGeminiClient:
-    def generate_content(self, model: str, contents: str, config: Dict[str, Any]) -> Any:
-        # Giả lập response JSON từ Gemini API
-        MOCK_AI_TASKS = [
-            {"title": "Finalize design system color palette", "priority": "High", "assignee_name": "Sarah Chen"},
-            {"title": "Fix user authentication service issue", "priority": "Medium", "assignee_name": "Mike Ross"},
-            {"title": "Schedule marketing launch strategy meeting", "priority": "Medium", "assignee_name": "Sarah Chen"},
-            {"title": "Review backend database PR", "priority": "High", "assignee_name": "Alex Johnson"},
-        ]
-        
-        return type('MockResponse', (object,), {
-            'text': json.dumps({"tasks": MOCK_AI_TASKS})
-        })
+# Import SDK mới
+from google import genai
+from google.genai import types
 
 class AIService:
     def __init__(self, db: Session):
         self.meeting_repo = MeetingRepository(db)
         self.task_repo = TaskRepository(db)
-        # Thay thế bằng client thực tế khi triển khai
-        self.ai_client = MockGeminiClient() 
-        self.ai_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash") 
-        self.user_repo = None # Cần truy cập User Repo để tìm assignee_id
+        
+        # Khởi tạo Client thật
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            print("⚠️ Warning: GOOGLE_API_KEY not found in env.")
+            self.client = None
+        else:
+            self.client = genai.Client(api_key=api_key)
+            
+        self.ai_model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 
     def process_transcript_and_create_tasks(self, meeting_id: str, transcript: str, current_user_id: str) -> List[task_schemas.TaskOut]:
-        """Phân tích transcript, tạo tasks và lưu vào DB."""
+        """Phân tích transcript thật bằng AI để tạo tasks."""
         meeting = self.meeting_repo.get_by_id(meeting_id)
         if not meeting:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found.")
 
-        # --- Logic Gọi Gemini API ---
+        if not self.client:
+            raise HTTPException(status_code=503, detail="AI Service unavailable (Missing API Key).")
+
+        # Prompt xịn hơn
         prompt = f"""
-        Analyze the following meeting transcript and extract all actionable tasks, along with their priority (Low, Medium, High) and the name of the person assigned to the task. 
-        Format the output STRICTLY as a JSON object: {{"tasks": [{{ "title": "...", "priority": "...", "assignee_name": "..." }}]}}.
-        Transcript: "{transcript}"
+        Bạn là trợ lý thư ký cuộc họp chuyên nghiệp. Hãy phân tích nội dung cuộc họp dưới đây:
+        "{transcript}"
+
+        Nhiệm vụ: Trích xuất các công việc (tasks) cụ thể cần thực hiện.
+        Yêu cầu Output: Trả về ĐÚNG định dạng JSON như sau (không thêm markdown ```json):
+        {{
+            "tasks": [
+                {{ "title": "Tên công việc ngắn gọn", "priority": "High/Medium/Low", "assignee_name": "Tên người được giao (hoặc Unassigned)" }}
+            ]
+        }}
         """
 
-        # 1. Gọi API (Sử dụng Mock client)
-        response = self.ai_client.generate_content(
-            model=self.ai_model,
-            contents=prompt,
-            config={"response_mime_type": "application/json"} # Yêu cầu Gemini trả về JSON
-        )
-        
-        # 2. Xử lý và Parse JSON Response
         try:
+            # Gọi AI thật
+            response = self.client.models.generate_content(
+                model=self.ai_model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json" # Ép kiểu JSON cứng
+                )
+            )
+            
+            # Parse JSON
             ai_data = json.loads(response.text)
             ai_tasks_raw = ai_data.get("tasks", [])
-        except (json.JSONDecodeError, AttributeError):
-            print("Error parsing AI response or response is empty.")
+            
+        except Exception as e:
+            print(f"❌ Error calling AI: {e}")
             return []
 
-        # 3. Chuyển đổi và Lưu Tasks vào DB
+        # Lưu vào DB
         created_tasks = []
         for task_raw in ai_tasks_raw:
-            # *TÌM ASSIGNEE ID (Logic nghiệp vụ phức tạp)*
-            # Cần logic để ánh xạ 'assignee_name' sang 'assignee_id' trong DB.
-            # Ví dụ: user = self.user_repo.get_user_by_name(task_raw['assignee_name']) 
-            
             new_task_data = {
                 "id": str(uuid4()),
                 "project_id": meeting.project_id,
                 "author_id": current_user_id,
-                "title": task_raw.get("title"),
+                "title": task_raw.get("title", "Untitled Task"),
                 "priority": task_raw.get("priority", "Medium"),
-                # "assignee_id": user.id if user else None, # Gán ID thực tế
+                # Ở đây bồ có thể thêm logic tìm assignee_id dựa trên tên nếu muốn
             }
             db_task = self.task_repo.create(new_task_data)
             created_tasks.append(task_schemas.TaskOut.model_validate(db_task))
 
-        # Cập nhật Meeting với transcript và summary (nếu có)
+        # Update meeting transcript
         self.meeting_repo.update_meeting_data(meeting_id, {"transcript": transcript}) 
         
         return created_tasks
 
     def get_chat_response(self, prompt: str, user_id: str) -> str:
-        """Xử lý yêu cầu chat trực tiếp từ người dùng thông qua Gemini Assistant."""
-        
-        # 1. Xây dựng Prompt (có thể thêm bối cảnh lịch sử chat hoặc Project đang hoạt động)
-        system_prompt = "You are a helpful project management assistant named JiraMeet AI. Your responses should be concise, professional, and actionable."
-        
-        full_prompt = f"{system_prompt}\n\nUser: {prompt}"
+        """Chat trực tiếp dùng AI thật"""
+        if not self.client:
+            return "Xin lỗi, hệ thống AI chưa được cấu hình API Key."
 
-        # 2. Gọi API (Sử dụng Mock client)
-        # response = self.ai_client.generate_content(model=self.ai_model, contents=full_prompt)
-        # return response.text
-        
-        # Giả lập phản hồi
-        return f"Tôi đã nhận được yêu cầu của bạn: '{prompt}'. Tôi có thể giúp bạn tạo Task, tìm kiếm Project, hoặc tóm tắt cuộc họp."
+        try:
+            response = self.client.models.generate_content(
+                model=self.ai_model,
+                contents=f"User: {prompt}\nAI Assistant:",
+            )
+            return response.text
+        except Exception as e:
+            return f"Đã xảy ra lỗi khi xử lý: {str(e)}"

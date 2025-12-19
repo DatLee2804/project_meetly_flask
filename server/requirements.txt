@@ -1,57 +1,53 @@
-# Core Dependencies
-python-dotenv>=1.0.1
-numpy
-# --- Web Framework & Server ---
-fastapi>=0.110.0
-uvicorn>=0.15.0
-starlette>=0.27.0
+﻿# --- Core System ---
+python-dotenv
+numpy<2.0.0
+requests
+httpx
+# Bỏ pin cứng, để FastAPI tự chọn version phù hợp
+fastapi
+uvicorn
+starlette
+python-socketio
 
 # --- Database ---
-sqlalchemy[asyncio]==1.4.46
-asyncpg==0.27.0
-aiosqlite==0.20.0
+# Nới lỏng để pip tự chọn bản 1.x hoặc 2.x phù hợp
+sqlalchemy>=1.4.0
+asyncpg
+aiosqlite
 
-# --- Authentication & Security ---
-passlib[bcrypt]==1.7.4
-python-jose[cryptography]==3.3.0
-bcrypt==4.0.1
+# --- Security ---
+passlib[bcrypt]
+python-jose[cryptography]
+bcrypt
 
-# --- Data Processing & Validation ---
-pydantic>=2.11.2,<3.0.0
-pydantic-settings>=2.4.0
+# --- Data Validation ---
+pydantic>=2.0.0
+pydantic-settings
 
-# --- LangChain Core ---
-# langchain>=0.3.0
-# langchain-core>=0.3.0 
-# langchain-community>=0.3.0
-# langchain-openai>=0.2.0
-# langchain-text-splitters>=0.3.0
+# --- AI & LangChain (Dùng bản mới nhất tương thích) ---
+langchain
+langchain-core
+langchain-community
+langchain-openai
+langchain-text-splitters
+langchain-google-genai
+langchain-weaviate
+langgraph
 
-# # --- AI/ML Models ---
-# openai>=1.40.0,<2.0.0
-# google-generativeai==0.3.1
+# --- Models & Tools ---
+openai
+google-generativeai
+transformers
+tiktoken
+tavily-python
+duckduckgo_search
 
-# # --- Vector Stores ---
-# weaviate-client==3.25.2
+# --- Audio & Vector DB ---
+faster-whisper
+# Giữ v3 vì code cũ có thể chưa tương thích v4, nhưng cho phép update các bản vá lỗi
+weaviate-client>=3.25.0,<4.0.0
 
-# # --- Document Loaders ---
-# unstructured>=0.10.30
-# unstructured-client>=0.42.4
-
-# --- AI Tools ---
-# transformers>=4.30.0  # Version with pre-built wheels for Windows
-# For Windows, we'll use a more compatible version of faster-whisper
-# faster-whisper>=0.9.0; platform_system != 'Windows'
-# faster-whisper>=1.0.0; platform_system == 'Windows' and python_version < '3.13'
-# --- Web & API ---
-python-socketio==5.8.0
-httpx==0.27.0
-
-# --- Development (Optional) ---
-# ipywidgets==8.1.2
-# jupyter==1.0.0
-# pygments==2.17.2
-# python-magic==0.4.27
-# pygraphviz==1.13  # Requires system-level graphviz installation
-
-# langchain-google-genai
+# --- Unstructured ---
+unstructured
+unstructured-client
+python-magic-bin; platform_system == 'Windows'

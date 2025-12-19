@@ -3,12 +3,11 @@ import React, { useState } from 'react';
 import { Mail, Shield, User as UserIcon } from 'lucide-react';
 import { User } from '../types';
 import * as mockApi from '../api/mockApi';
+import { useAuth } from '../context/AuthContext'; // <--- Thêm import
 
-interface AuthPageProps {
-  onLogin: (u: User) => void;
-}
 
-const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
+const AuthPage = () => {
+  const { login } = useAuth();
   const [isRegister, setIsRegister] = useState(false);
   const [formData, setFormData] = useState({ username: '', password: '', email: '', name: '' });
   const [loading, setLoading] = useState(false);
@@ -27,7 +26,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
             username: formData.username,
             password: formData.password
         });
-        onLogin(user);
+        login(user);
       }
     } catch (error: any) {
       const msg = (error).response?.data?.detail || "Authentication failed";

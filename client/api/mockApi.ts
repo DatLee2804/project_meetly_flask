@@ -317,3 +317,21 @@ export async function triggerAiAnalysis(meetingId: string): Promise<any> {
     const res = await api.post(`/meetings/${meetingId}/analyze`);
     return res.data;
 }
+
+// Hàm gọi Chat API thật (hoặc Mock tạm)
+export async function chatWithProjectManager(message: string, projectId?: string): Promise<string> {
+    try {
+        // Dùng luôn biến 'api' đã có sẵn ở trên (Nó tự lo URL và Token rồi)
+        // Đường dẫn lúc này sẽ là: http://localhost:8000/api/v1/ai/chat
+        const response = await api.post('/ai/chat', { 
+            message,
+            project_id: projectId,
+            thread_id: "thread_1" 
+        });
+
+        return response.data.response; 
+    } catch (error) {
+        console.error("API Chat Error:", error);
+        throw error;
+    }
+}

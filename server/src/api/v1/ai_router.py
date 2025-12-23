@@ -1,4 +1,5 @@
-# src/api/v1/ai_router.py
+# d/jirameet - Copy/server/src/api/v1/ai_router.py
+# Router chuyên biệt cho các tính năng AI (Chat, Xử lý ngôn ngữ, Giao tiếp Agent)
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -12,7 +13,7 @@ from src.schemas import task as task_schemas
 from src.schemas import user as user_schemas
 from src.services.ai_service import AIService 
 
-# Import Agent
+# Thử nạp Project Manager Agent (Sử dụng LangChain/RAG)
 try:
     from AI.src.agents.project_manager.agent import ProjectManagerAgent
     agent_available = True
@@ -20,6 +21,7 @@ except ImportError:
     agent_available = False
 
 router = APIRouter()
+
 
 # Schema cho Chat
 class ChatRequest(BaseModel):
@@ -30,15 +32,20 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
 
-# 1. Endpoint Chat (Dùng ProjectManagerAgent - Thông minh hơn)
+# --- 1. CHAT VỚI TRỢ LÝ AI (PROJECT MANAGER ASSISTANT) ---
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat_with_ai_agent(
     request: ChatRequest,
     current_user: user_schemas.UserOut = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    """
+    Endpoint Chat thông minh.
+    - Nếu Agent sẵn sàng: Sử dụng ProjectManagerAgent để trả lời dựa trên dữ liệu dự án (RAG).
+    - Nếu Agent lỗi: Fallback về AIService đơn giản (OpenAI direct chat).
+    """
     if not agent_available:
-        # Fallback về AIService đơn giản nếu Agent lỗi
         service = AIService(db)
         resp = service.get_chat_response(request.message, str(current_user.id))
         return {"response": resp}
@@ -55,7 +62,8 @@ async def chat_with_ai_agent(
         print(f"Agent Error: {e}")
         return {"response": "Xin lỗi, tôi đang gặp sự cố kết nối."}
 
-# 2. Endpoint Xử lý Meeting (Dùng AIService - Chuyên dụng)
+# --- 2. XỬ LÝ TRANSCRIPT (TRANSCRIPT TO TASKS) ---
+
 @router.post("/meeting/{meeting_id}/process-transcript", response_model=List[task_schemas.TaskOut])
 def process_transcript_and_get_tasks(
     meeting_id: str,
@@ -63,6 +71,10 @@ def process_transcript_and_get_tasks(
     current_user: user_schemas.UserOut = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    """
+    API dùng để bóc tách các hành động (Action Items) từ Transcript văn bản.
+    - Trả về danh sách các Task đề xuất để người dùng xác nhận.
+    """
     service = AIService(db)
     tasks = service.process_transcript_and_create_tasks(
         meeting_id=meeting_id,

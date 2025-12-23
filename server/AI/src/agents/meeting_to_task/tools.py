@@ -58,16 +58,40 @@ def transcribe_audio(audio_file_path: str, use_mock: bool = False, provider: str
             print(f"  📤 Đang upload file lên Gemini...")
             
             # Upload file dùng SDK mới
-            with open(audio_file_path, "rb") as f:
-                upload_file = ai_client.files.upload(file=f, config=dict(display_name="Meeting Audio"))
+            # Upload file dùng SDK mới
+            import mimetypes
+            mime_type, _ = mimetypes.guess_type(audio_file_path)
+            
+            # Fallback nếu không đoán được
+            if not mime_type:
+                if audio_file_path.endswith(".mp3"): mime_type = "audio/mp3"
+                elif audio_file_path.endswith(".wav"): mime_type = "audio/wav"
+                elif audio_file_path.endswith(".m4a"): mime_type = "audio/m4a"
+                elif audio_file_path.endswith(".webm"): mime_type = "video/webm" # Gemini accepts video/webm for audio container
+                else: mime_type = "audio/mp3" # Default risky fallback
 
-            # Đợi file xử lý (SDK mới thường xử lý nhanh)
-            # Tạm thời gọi generate luôn
+            print(f"  ℹ️ Detected MimeType: {mime_type}")
+
+            with open(audio_file_path, "rb") as f:
+                upload_file = ai_client.files.upload(file=f, config=dict(display_name="Meeting Audio", mime_type=mime_type))
+
+            # --- ĐỢI FILE XỬ LÝ XONG (QUAN TRỌNG) ---
+            print(f"  ⏳ Đang chờ Gemini xử lý file ({upload_file.name})...")
+            import time
+            while upload_file.state.name == "PROCESSING":
+                time.sleep(2)
+                upload_file = ai_client.files.get(name=upload_file.name)
+            
+            if upload_file.state.name == "FAILED":
+                raise ValueError(f"Gemini file processing failed: {upload_file.name}")
+            
+            print(f"  ✅ File đã sẵn sàng (State: {upload_file.state.name})")
             
             model_name = os.environ.get('GEMINI_MODEL', 'gemini-1.5-flash')
             print(f"  🤖 Using model for STT: {model_name}")
             
             prompt = 'Hãy tạo bản ghi chép (transcript) chi tiết cho đoạn âm thanh cuộc họp này. Phân biệt rõ người nói nếu có thể.'
+
             
             # Gọi API
             response = ai_client.models.generate_content(

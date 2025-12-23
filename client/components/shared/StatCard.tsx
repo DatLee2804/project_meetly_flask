@@ -1,12 +1,17 @@
-// src/components/shared/StatCard.tsx
+/**
+ * client/components/shared/StatCard.tsx
+ * Thành phần hiển thị "Thẻ số liệu" (Statistic Card).
+ * Dùng để trình bày các con số quan trọng kèm theo biểu tượng (icon).
+ */
+
 import React from 'react';
 import { LucideIcon } from 'lucide-react';
 
 interface StatCardProps {
-  title: string;
-  value: string | number;
-  icon: LucideIcon;
-  color: string; // e.g., 'text-green-400'
+  title: string;          // Tiêu đề của thẻ (VD: "Tổng công việc")
+  value: string | number; // Giá trị số liệu
+  icon: LucideIcon;       // Biểu tượng đại diện
+  color: string;          // Màu sắc của biểu tượng (class Tailwind)
 }
 
 const StatCard: React.FC<StatCardProps> = ({ title, value, icon: Icon, color }) => (

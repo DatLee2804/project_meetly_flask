@@ -1,8 +1,14 @@
+/**
+ * client/components/shared/ChatWidget.tsx
+ * Thành phần Chatbot AI (Meetly Assistant).
+ * Cung cấp giao diện chat nổi để người dùng tương tác với AI Agent quản lý dự án.
+ */
+
 import React, { useState, useRef, useEffect } from 'react';
-import { MessageSquare, X, Send, Minimize2, Maximize2, Loader2, User, Bot } from 'lucide-react';
+import { MessageSquare, X, Send, Minimize2, Maximize2, Loader2, Bot, Sparkles, User as UserIcon } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import { useAuth } from '../../context/AuthContext';
-// import { chatWithAI } from '../../api/mockApi'; // <--- Bồ cần thêm hàm này vào api/realApi (xem bước 3)
-import * as api from '../../api/mockApi'; // Giả sử bồ đã add hàm chat vào đây
+import * as api from '../../api/mockApi';
 
 interface Message {
   id: string;
@@ -11,22 +17,23 @@ interface Message {
   timestamp: Date;
 }
 
-export default function ChatWidget({ projectId }: { projectId?: string }) {
+export default function ChatWidget({ projectId, onRefresh }: { projectId?: string; onRefresh?: () => void }) {
   const { user } = useAuth();
-  const [isOpen, setIsOpen] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(false);
+  const [isOpen, setIsOpen] = useState(false); // Trạng thái mở/đóng widget
+  const [isMinimized, setIsMinimized] = useState(false); // Trạng thái thu nhỏ/phóng to
   const [messages, setMessages] = useState<Message[]>([
-    { id: '1', sender: 'bot', text: 'Chào bạn! Tôi là JiraMeet AI. Tôi có thể giúp gì cho dự án của bạn hôm nay?', timestamp: new Date() }
+    { id: '1', sender: 'bot', text: 'Hello! 👋 I am **Meetly Assistant**. I can help you manage tasks, analyze meetings, or answer any questions about this project.', timestamp: new Date() }
   ]);
-  const [inputValue, setInputValue] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [inputValue, setInputValue] = useState(''); // Giá trị nhập vào
+  const [isLoading, setIsLoading] = useState(false); // Trạng thái đang đợi AI phản hồi
+  const messagesEndRef = useRef<HTMLDivElement>(null); // Để tự động cuộn xuống cuối tin nhắn
 
-  // Auto scroll xuống cuối khi có tin nhắn mới
+  // Cuộn xuống khi có tin nhắn mới hoặc mở chat
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isOpen]);
+  }, [messages, isOpen, isLoading]);
 
+  /** Gửi tin nhắn tới AI */
   const handleSend = async () => {
     if (!inputValue.trim()) return;
 
@@ -42,25 +49,26 @@ export default function ChatWidget({ projectId }: { projectId?: string }) {
     setIsLoading(true);
 
     try {
-      // Gọi API Backend
-      // const response = await api.chatWithAI(inputValue, projectId); 
-      // Tạm thời mock để test UI nếu chưa xong API
-      const responseText = await api.chatWithProjectManager(inputValue, projectId);
+      // Gọi API AI Agent (ProjectManagerAgent)
+      const responseText = await api.chatWithProjectManager(inputValue, projectId, user?.id);
 
       const botMsg: Message = {
         id: (Date.now() + 1).toString(),
         sender: 'bot',
-        text: responseText, // || "Xin lỗi, tôi đang gặp sự cố kết nối.",
+        text: responseText,
         timestamp: new Date()
       };
       setMessages(prev => [...prev, botMsg]);
+
+      // Nếu AI có thay đổi task/project, refresh lại UI cha
+      if (onRefresh) onRefresh();
 
     } catch (error) {
       console.error("Chat error:", error);
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         sender: 'bot',
-        text: "Xin lỗi, hệ thống đang bận. Vui lòng thử lại sau.",
+        text: "Sorry, the system is busy. Please try again later.",
         timestamp: new Date()
       }]);
     } finally {
@@ -68,6 +76,7 @@ export default function ChatWidget({ projectId }: { projectId?: string }) {
     }
   };
 
+  /** Xử lý nhấn Enter để gửi */
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -75,85 +84,116 @@ export default function ChatWidget({ projectId }: { projectId?: string }) {
     }
   };
 
+  // Nút bong bóng (Bubble button) khi widget đang đóng
   if (!isOpen) {
     return (
-      <button 
+      <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 w-14 h-14 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-2xl flex items-center justify-center transition-transform hover:scale-110 z-50 group"
+        className="fixed bottom-6 right-6 w-16 h-16 bg-gradient-to-tr from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white rounded-2xl shadow-xl flex items-center justify-center transition-all z-50 group hover:scale-105"
       >
-        <MessageSquare size={28} />
-        <span className="absolute -top-10 scale-0 group-hover:scale-100 transition bg-gray-800 text-white text-xs px-2 py-1 rounded">Chat AI</span>
+        <MessageSquare size={30} className="group-hover:rotate-12 transition-transform" />
+        <div className="absolute -top-2 -right-2 w-5 h-5 bg-emerald-500 border-2 border-white rounded-full animate-pulse"></div>
       </button>
     );
   }
 
   return (
-    <div className={`fixed bottom-6 right-6 bg-white shadow-2xl rounded-2xl border border-gray-200 overflow-hidden flex flex-col z-50 transition-all duration-300 ${isMinimized ? 'w-72 h-16' : 'w-96 h-[500px]'}`}>
-      
-      {/* Header */}
-      <div className="bg-indigo-600 p-4 flex items-center justify-between text-white cursor-pointer" onClick={() => !isMinimized && setIsMinimized(!isMinimized)}>
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 bg-white/20 rounded-full">
-            <Bot size={18} />
+    <div className={`fixed bottom-6 right-6 bg-white shadow-2xl rounded-3xl border border-slate-200 overflow-hidden flex flex-col z-50 transition-all duration-500 ${isMinimized ? 'w-72 h-16' : 'w-[400px] h-[600px]'}`}>
+
+      {/* Header của Chat Widget */}
+      <div
+        className="bg-gradient-to-r from-indigo-600 to-violet-600 p-4 flex items-center justify-between text-white cursor-pointer"
+        onClick={() => setIsMinimized(!isMinimized)}
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-white/20 backdrop-blur-md rounded-xl flex items-center justify-center border border-white/30">
+            <Bot size={22} className="text-white" />
           </div>
           <div>
-            <h3 className="font-semibold text-sm">JiraMeet Assistant</h3>
-            {!isMinimized && <p className="text-xs text-indigo-200">Luôn sẵn sàng hỗ trợ</p>}
+            <h3 className="font-bold text-sm tracking-tight flex items-center gap-1.5">
+              Meetly Assistant <Sparkles size={14} className="text-indigo-200" />
+            </h3>
+            {!isMinimized && (
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></span>
+                <p className="text-[10px] text-indigo-100 uppercase font-black">AI Ready</p>
+              </div>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <button onClick={(e) => { e.stopPropagation(); setIsMinimized(!isMinimized); }} className="p-1 hover:bg-white/20 rounded">
+          <button onClick={(e) => { e.stopPropagation(); setIsMinimized(!isMinimized); }} className="p-1.5 hover:bg-white/10 rounded-lg">
             {isMinimized ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
           </button>
-          <button onClick={() => setIsOpen(false)} className="p-1 hover:bg-white/20 rounded">
+          <button onClick={(e) => { e.stopPropagation(); setIsOpen(false); }} className="p-1.5 hover:bg-white/10 rounded-lg">
             <X size={18} />
           </button>
         </div>
       </div>
 
-      {/* Body */}
+      {/* Vùng Tin nhắn */}
       {!isMinimized && (
         <>
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
+          <div className="flex-1 overflow-y-auto p-5 space-y-5 bg-slate-50/50">
             {messages.map((msg) => (
-              <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
-                  msg.sender === 'user' 
-                    ? 'bg-indigo-600 text-white rounded-br-none' 
-                    : 'bg-white border border-gray-100 text-gray-800 rounded-bl-none'
-                }`}>
-                  {msg.text}
+              <div
+                key={msg.id}
+                className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'} animate-in fade-in duration-300`}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">{msg.sender === 'bot' ? 'Assistant' : 'You'}</span>
+                </div>
+
+                <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm ${msg.sender === 'user'
+                  ? 'bg-indigo-600 text-white rounded-tr-none'
+                  : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none'
+                  }`}>
+                  {msg.sender === 'bot' ? (
+                    <div className="prose prose-sm max-w-none">
+                      <ReactMarkdown>{msg.text}</ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p>{msg.text}</p>
+                  )}
                 </div>
               </div>
             ))}
+
+            {/* Trạng thái AI đang gõ */}
             {isLoading && (
-              <div className="flex justify-start">
-                <div className="bg-white border border-gray-100 rounded-2xl rounded-bl-none px-4 py-3 shadow-sm">
-                  <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+              <div className="flex flex-col items-start animate-pulse">
+                <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-none px-4 py-3">
+                  <div className="flex gap-1">
+                    <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce"></span>
+                    <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce delay-75"></span>
+                    <span className="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-bounce delay-150"></span>
+                  </div>
                 </div>
               </div>
             )}
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Input Area */}
-          <div className="p-3 bg-white border-t border-gray-100 flex gap-2">
-            <input
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={handleKeyPress}
-              placeholder="Hỏi về task, meeting..."
-              className="flex-1 bg-gray-100 text-sm rounded-xl px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
-              autoFocus
-            />
-            <button 
-              onClick={handleSend}
-              disabled={!inputValue.trim() || isLoading}
-              className="p-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
-            >
-              <Send size={18} />
-            </button>
+          {/* Ô Nhập liệu */}
+          <div className="p-4 bg-white border-t border-slate-100">
+            <div className="relative flex items-end gap-2 bg-slate-100 rounded-2xl p-1 shadow-inner translate-y-0.5">
+              <textarea
+                rows={1}
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={handleKeyPress}
+                placeholder="Ask Meetly AI anything..."
+                className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-2 px-3 resize-none max-h-32"
+                autoFocus
+              />
+              <button
+                onClick={handleSend}
+                disabled={!inputValue.trim() || isLoading}
+                className="p-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:bg-slate-300 transition-all flex-shrink-0 mb-0.5"
+              >
+                {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+              </button>
+            </div>
           </div>
         </>
       )}

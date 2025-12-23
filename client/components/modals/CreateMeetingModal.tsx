@@ -1,66 +1,71 @@
-// src/components/modals/CreateMeetingModal.tsx
+/**
+ * client/components/modals/CreateMeetingModal.tsx
+ * Modal dùng để lên lịch cuộc họp mới.
+ * Cho phép nhập tiêu đề, nội dung, thời gian bắt đầu/kết thúc và chọn người tham gia từ dự án.
+ */
+
 import React, { useState, useEffect } from 'react';
 import { X, Calendar, Clock, Users } from 'lucide-react';
 import { User, Project } from '../../types';
 
 interface CreateMeetingModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onCreate: (meetingData: any) => void;
-  users: User[];          // Danh sách toàn bộ user để map ID -> Tên
-  activeProject: Project | null; // Cần project để lấy danh sách thành viên team
+  isOpen: boolean;                     // Trạng thái modal
+  onClose: () => void;                 // Hàm đóng modal
+  onCreate: (meetingData: any) => void; // Hàm xử lý khi bấm Lên lịch
+  users: User[];                       // Danh sách toàn bộ người dùng hệ thống
+  activeProject: Project | null;       // Dự án đang mở để lấy danh sách thành viên
 }
 
-const CreateMeetingModal: React.FC<CreateMeetingModalProps> = ({ 
-  isOpen, onClose, onCreate, users, activeProject 
+const CreateMeetingModal: React.FC<CreateMeetingModalProps> = ({
+  isOpen, onClose, onCreate, users, activeProject
 }) => {
-  // Init State
+  // Trạng thái Form
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  
-  // Format mặc định cho input datetime-local: YYYY-MM-DDTHH:mm
+
+  // Thiết lập thời gian mặc định
   const defaultStart = new Date();
-  defaultStart.setMinutes(defaultStart.getMinutes() + 30); // Mặc định bắt đầu sau 30p
+  defaultStart.setMinutes(defaultStart.getMinutes() + 30); // Bắt đầu sau 30 phút
   const defaultEnd = new Date(defaultStart);
-  defaultEnd.setHours(defaultEnd.getHours() + 1); // Mặc định kéo dài 1 tiếng
+  defaultEnd.setHours(defaultEnd.getHours() + 1); // Kéo dài 1 tiếng
 
   const [startDate, setStartDate] = useState(defaultStart.toISOString().slice(0, 16));
   const [endDate, setEndDate] = useState(defaultEnd.toISOString().slice(0, 16));
   const [attendeeIds, setAttendeeIds] = useState<string[]>([]);
 
-  // Reset form khi mở modal
+  // Tự động khởi tạo danh sách người tham gia là toàn bộ thành viên dự án
   useEffect(() => {
     if (isOpen && activeProject) {
-        setTitle('');
-        setDescription('');
-        // Mặc định chọn tất cả thành viên trong dự án
-        setAttendeeIds(activeProject.members); 
+      setTitle('');
+      setDescription('');
+      setAttendeeIds(activeProject.members);
     }
   }, [isOpen, activeProject]);
 
   if (!isOpen || !activeProject) return null;
 
+  /** Hàm chọn/bỏ chọn người tham gia */
   const handleToggleAttendee = (userId: string) => {
-    setAttendeeIds(prev => 
-      prev.includes(userId) 
-        ? prev.filter(id => id !== userId) 
+    setAttendeeIds(prev =>
+      prev.includes(userId)
+        ? prev.filter(id => id !== userId)
         : [...prev, userId]
     );
   };
 
+  /** Xử lý gửi dữ liệu lên Backend */
   const handleSubmit = () => {
     if (!title.trim()) return;
 
-    // Validate ngày tháng đơn giản
     if (new Date(startDate) >= new Date(endDate)) {
-        alert("End time must be after start time");
-        return;
+      alert("End time must be after start time!");
+      return;
     }
 
     const meetingPayload = {
       title,
       description,
-      startDate: new Date(startDate).toISOString(), // Chuyển về chuẩn ISO cho Backend
+      startDate: new Date(startDate).toISOString(),
       endDate: new Date(endDate).toISOString(),
       attendees: attendeeIds,
       projectId: activeProject.id
@@ -69,122 +74,95 @@ const CreateMeetingModal: React.FC<CreateMeetingModalProps> = ({
     onCreate(meetingPayload);
   };
 
-  // Lọc ra danh sách User object thuộc Project này
+  // Lấy User object từ list IDs của dự án
   const projectMembers = users.filter(u => activeProject.members.includes(u.id));
 
   return (
     <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
       <div className="bg-[#1e293b] rounded-xl shadow-2xl w-full max-w-lg border border-slate-700 animate-in fade-in zoom-in duration-200">
-        
+
         {/* Header */}
         <div className="flex justify-between items-center p-5 border-b border-slate-700">
           <h3 className="text-xl font-bold text-white">Schedule New Meeting</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-white transition">
-            <X size={24} />
-          </button>
+          <button onClick={onClose} className="text-slate-400 hover:text-white"><X size={24} /></button>
         </div>
 
-        {/* Body */}
+        {/* Nội dung */}
         <div className="p-6 space-y-5">
-          
-          {/* Title */}
+          {/* Tiêu đề cuộc họp */}
           <div>
             <label className="block text-xs font-semibold text-slate-400 mb-1.5">Meeting Title</label>
-            <input 
+            <input
               autoFocus
-              className="w-full bg-slate-800 border border-slate-600 p-3 rounded-lg text-white placeholder-slate-500 focus:ring-2 focus:ring-indigo-500 focus:outline-none transition" 
-              placeholder="e.g. Weekly Sync - Alpha" 
+              className="w-full bg-slate-800 border border-slate-600 p-3 rounded-lg text-white outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="e.g., Weekly Sync Alpha"
               value={title}
               onChange={e => setTitle(e.target.value)}
             />
           </div>
 
-          {/* Description */}
+          {/* Agenda / Mô tả */}
           <div>
-            <label className="block text-xs font-semibold text-slate-400 mb-1.5">Meeting Agenda / Description</label>
-            <textarea 
-              className="w-full bg-slate-800 border border-slate-600 p-3 rounded-lg text-white placeholder-slate-500 focus:ring-2 focus:ring-indigo-500 focus:outline-none transition resize-none h-24" 
-              placeholder="Discuss project milestones..." 
+            <label className="block text-xs font-semibold text-slate-400 mb-1.5">Agenda / Description</label>
+            <textarea
+              className="w-full bg-slate-800 border border-slate-600 p-3 rounded-lg text-white outline-none focus:ring-2 focus:ring-indigo-500 h-24 resize-none"
+              placeholder="Discuss milestones..."
               value={description}
               onChange={e => setDescription(e.target.value)}
             />
           </div>
 
-          {/* Row: Dates */}
+          {/* Thời gian */}
           <div className="grid grid-cols-2 gap-4">
-             <div className="relative">
-                <label className="block text-xs font-semibold text-slate-400 mb-1.5">Start Time</label>
-                <div className="relative">
-                    <input 
-                      type="datetime-local"
-                      className="w-full bg-slate-800 border border-slate-600 p-3 pl-10 rounded-lg text-white placeholder-slate-500 focus:ring-2 focus:ring-indigo-500 focus:outline-none [color-scheme:dark]" 
-                      value={startDate}
-                      onChange={e => setStartDate(e.target.value)}
-                    />
-                    <Calendar className="absolute left-3 top-3.5 text-slate-500" size={18} />
-                </div>
-             </div>
-             <div className="relative">
-                <label className="block text-xs font-semibold text-slate-400 mb-1.5">End Time</label>
-                <div className="relative">
-                    <input 
-                      type="datetime-local"
-                      className="w-full bg-slate-800 border border-slate-600 p-3 pl-10 rounded-lg text-white placeholder-slate-500 focus:ring-2 focus:ring-indigo-500 focus:outline-none [color-scheme:dark]" 
-                      value={endDate}
-                      onChange={e => setEndDate(e.target.value)}
-                    />
-                    <Clock className="absolute left-3 top-3.5 text-slate-500" size={18} />
-                </div>
-             </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 mb-1.5">Start</label>
+              <input
+                type="datetime-local"
+                className="w-full bg-slate-800 border border-slate-600 p-3 rounded-lg text-white [color-scheme:dark]"
+                value={startDate}
+                onChange={e => setStartDate(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 mb-1.5">End</label>
+              <input
+                type="datetime-local"
+                className="w-full bg-slate-800 border border-slate-600 p-3 rounded-lg text-white [color-scheme:dark]"
+                value={endDate}
+                onChange={e => setEndDate(e.target.value)}
+              />
+            </div>
           </div>
 
-          {/* Attendees List */}
+          {/* Thành viên tham gia */}
           <div>
-             <label className="block text-xs font-semibold text-slate-400 mb-2 flex items-center gap-2">
-                <Users size={14}/> Add Attendees (Project Team)
-             </label>
-             <div className="bg-slate-800 border border-slate-600 rounded-lg max-h-40 overflow-y-auto p-2">
-                {projectMembers.length > 0 ? (
-                    projectMembers.map(user => (
-                        <label key={user.id} className="flex items-center gap-3 p-2 hover:bg-slate-700/50 rounded-lg cursor-pointer transition">
-                            <input 
-                                type="checkbox"
-                                className="w-4 h-4 rounded border-slate-500 text-indigo-600 focus:ring-indigo-500 bg-slate-700"
-                                checked={attendeeIds.includes(user.id)}
-                                onChange={() => handleToggleAttendee(user.id)}
-                            />
-                            <div className="flex items-center gap-2">
-                                <img src={user.avatar} alt={user.name} className="w-6 h-6 rounded-full object-cover" />
-                                <div className="text-sm text-slate-200">
-                                    {user.name} <span className="text-slate-500 text-xs ml-1">({user.email})</span>
-                                </div>
-                            </div>
-                        </label>
-                    ))
-                ) : (
-                    <p className="text-slate-500 text-sm text-center p-2">No members found in this project.</p>
-                )}
-             </div>
+            <label className="block text-xs font-semibold text-slate-400 mb-2 flex items-center gap-2">
+              <Users size={14} /> Invite Participants (Project Members)
+            </label>
+            <div className="bg-slate-800 border border-slate-600 rounded-lg max-h-40 overflow-y-auto p-2">
+              {projectMembers.map(user => (
+                <label key={user.id} className="flex items-center gap-3 p-2 hover:bg-slate-700/50 rounded-lg cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 rounded text-indigo-600 bg-slate-700"
+                    checked={attendeeIds.includes(user.id)}
+                    onChange={() => handleToggleAttendee(user.id)}
+                  />
+                  <div className="flex items-center gap-2">
+                    <img src={user.avatar} className="w-6 h-6 rounded-full object-cover" />
+                    <span className="text-sm text-slate-200">{user.name}</span>
+                  </div>
+                </label>
+              ))}
+            </div>
           </div>
-
         </div>
 
-        {/* Footer */}
-        <div className="p-5 border-t border-slate-700 bg-slate-800/50 rounded-b-xl flex justify-end gap-3">
-           <button 
-             onClick={onClose}
-             className="px-5 py-2.5 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg font-medium transition"
-           >
-             Cancel
-           </button>
-           <button 
-             onClick={handleSubmit}
-             className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-semibold shadow-lg shadow-indigo-900/20 transition w-full sm:w-auto"
-           >
-             Schedule Meeting
-           </button>
+        {/* Nút bấm */}
+        <div className="p-5 border-t border-slate-700 bg-slate-800/50 flex justify-end gap-3 rounded-b-xl">
+          <button onClick={onClose} className="px-5 py-2.5 text-slate-300">Cancel</button>
+          <button onClick={handleSubmit} className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg font-bold">Schedule</button>
         </div>
-
       </div>
     </div>
   );

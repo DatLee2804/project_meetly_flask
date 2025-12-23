@@ -28,6 +28,7 @@ class ProjectUpdate(ProjectBase):
 class ProjectOut(ProjectBase):
     """Schema đầu ra cho Dự án (bao gồm thành viên)."""
     id: str
+    owner_id: Optional[str] = None
     # Sử dụng UserOut để trả về thông tin chi tiết của thành viên
     members: List[UserOut] = [] 
 

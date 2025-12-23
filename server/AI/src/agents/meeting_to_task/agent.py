@@ -1,17 +1,26 @@
+"""
+server/AI/src/agents/meeting_to_task/agent.py
+Định nghĩa MeetingToTaskAgent sử dụng LangGraph.
+Agent này chịu trách nhiệm chuyển đổi âm thanh cuộc họp thành văn bản, phân tích nội dung, 
+tự động trích xuất các công việc (Action Items) và gửi thông báo cho các bên liên quan.
+Cơ chế: Tự phản biện (Self-reflection) để nâng cao chất lượng biên bản.
+"""
+
 from dotenv import load_dotenv
 import json
 from typing import List, Optional
-
-# --- Cần thêm dòng import này ở đầu file ---
 from sqlalchemy.orm import joinedload 
-from src.models.meeting import Meeting # Đảm bảo import đúng model
 
-# LangGraph và LangChain
+# Import Models và LangGraph components
+try:
+    from src.models.meeting import Meeting
+except ImportError:
+    from server.src.models.meeting import Meeting
+
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage
 
-# Import từ module này
 from .schemas import AgentState, MeetingOutput, ReflectionOutput
 from .prompts import ANALYSIS_PROMPT, REFLECTION_PROMPT, REFINEMENT_PROMPT
 from .tools import (
@@ -23,60 +32,50 @@ from .tools import (
 )
 from ...models.models import call_llm
 
-# Load environment variables
 load_dotenv()
 
-
 def _extract_participant_names(participants: List[dict]) -> str:
-    """Trích xuất danh sách tên participants để đưa vào prompt."""
+    """Hàm hỗ trợ lấy danh sách tên người tham gia từ metadata."""
     if not participants:
-        return "Không có thông tin participants"
-    
-    names = [p.get('username', 'Unknown') for p in participants]
+        return "Không có thông tin thành viên"
+    names = [p.get('username', 'Ẩn danh') for p in participants]
     return ", ".join(names)
-
 
 class MeetingToTaskAgent:
     """
-    Agent xử lý meeting recordings và tạo tasks tự động
+    Agent chuyên dụng: 'Chuyển đổi Cuộc họp thành Công việc'.
+    Sử dụng kiến trúc Đồ thị (Graph) với các bước: STT -> Phân tích -> Phản biện -> Tinh chỉnh -> Tạo Task -> Thông báo.
     """
     
     def __init__(self):
-        """
-        Khởi tạo agent
-        
-        Args:
-            provider_name: Tên provider LLM để sử dụng
-        """
+        """Khởi tạo Agent với mô hình Gemini AI thế hệ mới."""
         self.model = call_llm(
             model_provider='gemini',
-            model_name='gemini-2.5-flash-lite-preview-09-2025',
+            model_name='gemini-2.0-flash', # Sử dụng model Flash mạnh mẽ và nhanh
             temperature=0.1,
             top_p=0.5,
         )
-        self.memory = MemorySaver()
+        self.memory = MemorySaver() # Lưu giữ trạng thái giữa các bước
         self.graph = self._build_graph()
     
     def _build_graph(self) -> StateGraph:
-        """Xây dựng workflow graph"""
+        """Xây dựng luồng công việc (Workflow) cho quá trình xử lý cuộc họp."""
         builder = StateGraph(AgentState)
         
-        # Thêm các nodes
-        builder.add_node('stt', self._stt)
-        builder.add_node('analysis', self._analysis)
-        builder.add_node('reflection', self._reflection)
-        builder.add_node('refinement', self._refinement)
-        builder.add_node('create_tasks', self._create_tasks)
-        builder.add_node('notification', self._notification)
+        # 1. Định nghĩa các Node (Các bước xử lý)
+        builder.add_node('stt', self._stt)                     # Chuyển âm thanh -> văn bản
+        builder.add_node('analysis', self._analysis)           # Phân tích nội dung (Tạo MoM)
+        builder.add_node('reflection', self._reflection)       # Tự kiểm tra lỗi (Lô-gic)
+        builder.add_node('refinement', self._refinement)       # Tinh chỉnh bản thảo
+        builder.add_node('create_tasks', self._create_tasks)   # Lưu Task vào hệ thống
+        builder.add_node('notification', self._notification)   # Gửi Email thông báo
         
-        # Thiết lập entry point
+        # 2. Kết nối các bước (Edges)
         builder.set_entry_point('stt')
-        
-        # Thêm các edges
         builder.add_edge('stt', 'analysis')
         builder.add_edge('analysis', 'reflection')
         
-        # Conditional edge: reflection -> refine hoặc create_tasks
+        # Bước phản biện có thể quay lại bước tinh chỉnh nếu kết quả chưa tốt
         builder.add_conditional_edges(
             'reflection',
             self._should_create_tasks,
@@ -85,309 +84,126 @@ class MeetingToTaskAgent:
                 True: 'create_tasks'
             }
         )
-        
-        # Edge: refinement quay lại reflection để kiểm tra lại
         builder.add_edge('refinement', 'reflection')
-        
-        # Edge: create_tasks -> notification -> END
         builder.add_edge('create_tasks', 'notification')
         builder.add_edge('notification', END)
         
-        # Compile graph với memory và interrupt_before
+        # interrupt_before=['create_tasks']: Dừng lại để con người duyệt trước khi lưu thật vào DB
         return builder.compile(
             checkpointer=self.memory,
             interrupt_before=['create_tasks']
         )
     
-    # ==================== NODES ====================
+    # --- CÁC HÀM XỬ LÝ (NODES) ---
     
     def _stt(self, state: AgentState):
-        """Node 1: Chuyển đổi âm thanh thành văn bản"""
-        print("\n[NODE 1] Đang chuyển đổi âm thanh thành văn bản...")
-        print('='*100)
-        
-        transcript = transcribe_audio(
-            state['audio_file_path'], 
-            provider='gemini', 
-            use_mock=False
-        )
-        
-        print(f"  ✅ Transcript: {len(transcript)} ký tự")
+        """Bước 1: Sử dụng công nghệ Speech-to-Text để trích xuất văn bản từ file ghi âm."""
+        print("\n[BƯỚC 1] Đang chuyển đổi giọng nói thành văn bản...")
+        transcript = transcribe_audio(state['audio_file_path'], provider='gemini')
         return {'transcript': transcript}
     
     def _analysis(self, state: AgentState):
-        """Node 2: Phân tích và tạo MoM + Action Items"""
-        print("\n[NODE 2] Đang phân tích và tạo MoM...")
-        print('='*100)
-        
+        """Bước 2: Phân tích Transcript để lấy Tóm tắt (Summary) và Hành động (Action Items)."""
+        print("\n[BƯỚC 2] Đang phân tích nội dung cuộc họp...")
         metadata = state.get('meeting_metadata', {})
-        participants = metadata.get('participants', [])
+        participants_str = _extract_participant_names(metadata.get('participants', []))
         
-        # Tạo metadata string (không bao gồm participants để tránh trùng lặp)
-        metadata_display = {k: v for k, v in metadata.items() if k != 'participants'}
-        metadata_str = json.dumps(metadata_display, indent=2, ensure_ascii=False)
+        prompt = ANALYSIS_PROMPT.format(
+            participants=participants_str,
+            metadata=json.dumps(metadata, ensure_ascii=False),
+            transcript=state['transcript']
+        )
         
-        # Tạo danh sách participants
-        participants_str = _extract_participant_names(participants)
-        
-        messages = [
-            HumanMessage(content=ANALYSIS_PROMPT.format(
-                participants=participants_str,
-                metadata=metadata_str,
-                transcript=state['transcript']
-            ))
-        ]
-        
-        response = self.model.with_structured_output(MeetingOutput).invoke(messages)
-        
-        # Chuyển đổi action items sang dict
+        response = self.model.with_structured_output(MeetingOutput).invoke([HumanMessage(content=prompt)])
         action_items_list = [item.dict() for item in response.action_items]
         
-        print(f"  ✅ Summary: {len(response.summary)} ký tự")
-        print(f"  ✅ Action Items: {len(action_items_list)} items")
-        for item in action_items_list:
-            print(f"     - {item.get('assignee', 'N/A')}: {item.get('title', '')[:40]}...")
-        
-        return {
-            'mom': response.summary,
-            'action_items': action_items_list,
-        }
+        return {'mom': response.summary, 'action_items': action_items_list}
     
     def _reflection(self, state: AgentState):
-        """Node 3: Tự kiểm tra và phát hiện lỗi"""
-        print("\n[NODE 3] Đang tự kiểm tra chất lượng...")
-        print('='*100)
-        
-        metadata = state.get('meeting_metadata', {})
-        participants = metadata.get('participants', [])
-        participants_str = _extract_participant_names(participants)
-        
-        action_items_str = json.dumps(state['action_items'], indent=2, ensure_ascii=False)
-        
-        messages = [
-            HumanMessage(content=REFLECTION_PROMPT.format(
-                participants=participants_str,
-                mom=state['mom'],
-                action_items=action_items_str
-            ))
-        ]
-        
-        response = self.model.with_structured_output(ReflectionOutput).invoke(messages)
-        
-        print(f"  📝 Critique: {response.critique[:100]}...")
-        print(f"  🎯 Decision: {response.decision}")
-        
+        """Bước 3: AI tự đánh giá xem bản tóm tắt và danh sách task đã hợp lý và đầy đủ chưa."""
+        print("\n[BƯỚC 3] Đang tự kiểm tra chất lượng kết quả...")
+        prompt = REFLECTION_PROMPT.format(
+            participants=_extract_participant_names(state.get('meeting_metadata', {}).get('participants', [])),
+            mom=state['mom'],
+            action_items=json.dumps(state['action_items'], ensure_ascii=False)
+        )
+        response = self.model.with_structured_output(ReflectionOutput).invoke([HumanMessage(content=prompt)])
         return {'critique': response.critique, 'reflect_decision': response.decision}
     
     def _refinement(self, state: AgentState):
-        """Node 4: Tinh chỉnh dựa trên phản hồi"""
-        print("\n[NODE 4] Tinh chỉnh MoM...")
-        print('='*100)
-        
-        metadata = state.get('meeting_metadata', {})
-        participants = metadata.get('participants', [])
-        participants_str = _extract_participant_names(participants)
-        
-        action_items_str = json.dumps(state['action_items'], indent=2, ensure_ascii=False)
-        
-        messages = [
-            HumanMessage(content=REFINEMENT_PROMPT.format(
-                participants=participants_str,
-                draft_mom=state['mom'],
-                draft_action_items=action_items_str,
-                critique=state['critique'],
-                transcript=state['transcript']
-            ))
-        ]
-        
-        response = self.model.with_structured_output(MeetingOutput).invoke(messages)
-        
-        refined_action_items = [item.dict() for item in response.action_items]
-        revision_count = state.get('revision_count', 0) + 1
-        
-        print(f"  🔄 Revision #{revision_count}")
-        
+        """Bước 4: Sửa đổi và hoàn thiện bản tóm tắt dựa trên những phê bình ở bước Reflection."""
+        print("\n[BƯỚC 4] Đang sửa đổi và tinh chỉnh bản thảo...")
+        prompt = REFINEMENT_PROMPT.format(
+            participants=_extract_participant_names(state.get('meeting_metadata', {}).get('participants', [])),
+            draft_mom=state['mom'],
+            draft_action_items=json.dumps(state['action_items'], ensure_ascii=False),
+            critique=state['critique'],
+            transcript=state['transcript']
+        )
+        response = self.model.with_structured_output(MeetingOutput).invoke([HumanMessage(content=prompt)])
         return {
             'mom': response.summary,
-            'action_items': refined_action_items,
-            'revision_count': revision_count
+            'action_items': [item.dict() for item in response.action_items],
+            'revision_count': state.get('revision_count', 0) + 1
         }
     
     def _create_tasks(self, state: AgentState):
-        """Node 5: Tạo tasks trong hệ thống backend"""
-        print("\n[NODE 5] Tạo tasks...")
-        print('='*100)
+        """Bước 5: Chính thức lưu các công việc đã phân tích vào CSDL của Meetly."""
+        print("\n[BƯỚC 5] Tiến hành lưu công việc vào hệ thống...")
+        metadata = state.get('meeting_metadata', {})
+        participants = metadata.get('participants', [])
         
-        action_items = state.get('action_items', [])
-        meeting_metadata = state.get('meeting_metadata', {})
-        participants = meeting_metadata.get('participants', [])
+        user_mapping = {p.get('username', '').lower(): p.get('userId') for p in participants}
         
-        # Extract project_id and author_user_id from meeting metadata
-        project_id = meeting_metadata.get('projectId')
-        author_user_id = meeting_metadata.get('authorUserId')
-        
-        # Build user_mapping: assignee name (lowercase) -> userId
-        user_mapping = {}
-        for p in participants:
-            username = p.get('username', '')
-            user_id = p.get('userId')
-            if username and user_id:
-                user_mapping[username.lower()] = user_id
-        
-        # Call API to create tasks
         tasks = create_tasks(
-            action_items=action_items,
-            project_id=project_id,
-            author_user_id=author_user_id,
+            action_items=state.get('action_items', []),
+            project_id=metadata.get('projectId'),
+            author_user_id=metadata.get('authorUserId'),
             user_mapping=user_mapping
         )
-        
-        print(f"  📊 Created {len(tasks)} tasks")
         return {'tasks_created': tasks}
     
     def _notification(self, state: AgentState):
-        """Node 6: Gửi thông báo tới từng assignee"""
-        print("\n[NODE 6] Gửi notification...")
-        print('='*100)
+        """Bước 6: Gửi Email/Thông báo tới từng người được giao việc."""
+        print("\n[BƯỚC 6] Đang gửi thông báo cho các thành viên...")
+        metadata = state.get('meeting_metadata', {})
+        email_map = get_emails_from_participants(metadata.get('participants', []))
         
-        mom = state.get('mom')
-        action_items = state.get('action_items', [])
-        meeting_metadata = state.get('meeting_metadata', {})
-        participants = meeting_metadata.get('participants', [])
-        
-        # Lấy email mapping từ participants
-        email_map = get_emails_from_participants(participants)
-        
-        print(f"  👥 Participants với email: {list(email_map.keys())}")
-        
-        # Gửi email cho từng task
         results = []
-        for task in action_items:
+        for task in state.get('action_items', []):
             assignee = task.get('assignee', '').lower()
-            
-            # Skip nếu là Unassigned
-            if assignee == 'unassigned' or not assignee:
-                print(f"  ⏭️ Skip task không có assignee: {task.get('title', '')[:30]}...")
-                continue
-            
             email = email_map.get(assignee)
             
-            if not email:
-                print(f"  ⚠️ Không tìm thấy email cho: {assignee}")
-                results.append({
-                    "assignee": assignee,
-                    "email": None,
-                    "title": task.get('title', ''),
-                    "status": "skipped",
-                    "reason": "Email not found in participants"
-                })
-                continue
-            
-            # Format email riêng cho task này
-            email_body = format_email_body_for_assignee(
-                assignee_name=assignee.title(),
-                assignee_task=task,
-                mom=mom,
-                meeting_metadata=meeting_metadata
-            )
-            
-            result = send_notification(
-                email_body=email_body,
-                receiver_email=email,
-                subject=f"[Action Required] {meeting_metadata.get('title', 'Meeting')} - Công việc cho {assignee.title()}"
-            )
-            
-            results.append({
-                "assignee": assignee,
-                "email": email,
-                "title": task.get('title', ''),
-                "status": "sent" if result else "failed"
-            })
-        
-        sent_count = len([r for r in results if r['status'] == 'sent'])
-        print(f"\n  📊 Đã gửi {sent_count}/{len(results)} email")
+            if email:
+                email_body = format_email_body_for_assignee(
+                    assignee_name=assignee.title(),
+                    assignee_task=task,
+                    mom=state.get('mom'),
+                    meeting_metadata=metadata
+                )
+                success = send_notification(email_body=email_body, receiver_email=email, subject=f"[Meetly] Công việc mới từ cuộc họp: {task.get('title')}")
+                results.append({"assignee": assignee, "status": "sent" if success else "failed"})
         
         return {'notification_sent': results}
-    
-    # ==================== CONDITIONAL LOGIC ====================
-    
+
     def _should_create_tasks(self, state: AgentState) -> bool:
-        """Quyết định có cần tinh chỉnh dựa trên critique không."""
-        decision = state.get('reflect_decision', '')
-        max_revisions = state.get('max_revisions', 2)
-        revision_count = state.get('revision_count', 0)
-        
-        # Accept nếu decision là accept HOẶC đã đạt max revisions
-        if decision == 'accept':
-            return True
-        if revision_count >= max_revisions:
-            print(f"  ⚠️ Đạt max revisions ({max_revisions}), tiếp tục...")
+        """Logic điều kiện: Tiếp tục tạo task hay cần quay lại sửa đổi?"""
+        if state.get('reflect_decision') == 'accept' or state.get('revision_count', 0) >= state.get('max_revisions', 2):
             return True
         return False
-    
-    # ==================== PUBLIC METHODS ====================
-    
-    def run(self, audio_file_path: str, meeting_metadata: Optional[dict] = None, 
-            max_revisions: int = 2, thread_id: str = '1'):
-        """
-        Chạy workflow đến điểm Human Review
-        
-        Args:
-            audio_file_path: Đường dẫn đến file âm thanh
-            meeting_metadata: Metadata của cuộc họp (bao gồm participants)
-            max_revisions: Số lần tối đa cho phép tinh chỉnh
-            thread_id: ID của thread cho memory
-            
-        Returns:
-            Tuple[dict, dict]: (current_state, thread_config)
-        """
+
+    def run(self, audio_file_path: str, meeting_metadata: Optional[dict] = None, max_revisions: int = 2, thread_id: str = '1'):
+        """Chạy quy trình tự động đến khi cần sự đồng ý của con người."""
         initial_state = {
             'audio_file_path': audio_file_path,
             'meeting_metadata': meeting_metadata or {},
             'max_revisions': max_revisions,
             'revision_count': 0,
         }
-        
         thread = {'configurable': {'thread_id': thread_id}}
         
-        print("\n🚀 Starting Meeting-to-Task Agent...")
-        print("="*100)
-        
-        # Hiển thị participants
-        participants = (meeting_metadata or {}).get('participants', [])
-        if participants:
-            print(f"👥 Participants: {_extract_participant_names(participants)}")
-        
-        # Chạy đến điểm interrupt
         for event in self.graph.stream(initial_state, thread):
-            pass  # Events đã được print trong nodes
+            pass 
 
         current_state = self.graph.get_state(thread)
         return current_state.values, thread
-    
-    def continue_after_review(self, thread, updated_mom: str = None, 
-                              updated_action_items: list = None):
-        """Cập nhật state và tiếp tục workflow sau human review"""
-        if updated_mom or updated_action_items:
-            updates = {}
-            if updated_mom:
-                updates['mom'] = updated_mom
-            if updated_action_items:
-                updates['action_items'] = updated_action_items
-            self.graph.update_state(thread, updates)
-        
-        print("\n▶️ Continuing after human review...")
-        print("="*100)
-        
-        for event in self.graph.stream(None, thread):
-            pass
-        
-        final_state = self.graph.get_state(thread)
-        return final_state.values
-    
-    def get_graph(self):
-        """Hiển thị graph dưới dạng hình ảnh"""
-        from IPython.display import Image, display
-        
-        img = self.graph.get_graph().draw_mermaid_png()
-        return display(Image(img))

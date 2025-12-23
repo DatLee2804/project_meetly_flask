@@ -1,20 +1,25 @@
-// src/components/modals/EditTaskModal.tsx
+/**
+ * client/components/modals/EditTaskModal.tsx
+ * Modal dùng để chỉnh sửa thông tin một công việc hiện có.
+ * Tương tự CreateTaskModal nhưng nạp dữ liệu cũ vào các trường nhập liệu.
+ */
+
 import React, { useState, useEffect } from 'react';
 import { X, Calendar, User as UserIcon, Tag, Flag, AlertCircle } from 'lucide-react';
 import { User, Task, TaskStatus, Priority } from '../../types';
 
 interface EditTaskModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onSave: (taskId: string, updates: any) => void;
-  users: User[];
-  task: Task | null; // Task cần sửa
+  isOpen: boolean;                     // Trạng thái modal
+  onClose: () => void;                 // Hàm đóng modal
+  onSave: (taskId: string, updates: any) => void; // Hàm xử lý lưu thay đổi
+  users: User[];                       // Danh sách người dùng để phân công
+  task: Task | null;                   // Dữ liệu task cần chỉnh sửa
 }
 
-const EditTaskModal: React.FC<EditTaskModalProps> = ({ 
-  isOpen, onClose, onSave, users, task 
+const EditTaskModal: React.FC<EditTaskModalProps> = ({
+  isOpen, onClose, onSave, users, task
 }) => {
-  // Init State
+  // Trạng thái Form
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<TaskStatus>(TaskStatus.TODO);
@@ -24,22 +29,23 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
   const [dueDate, setDueDate] = useState('');
   const [assigneeId, setAssigneeId] = useState('');
 
-  // Load dữ liệu cũ khi mở modal
+  // Nạp dữ liệu cũ từ object `task` vào các state khi mở modal
   useEffect(() => {
     if (isOpen && task) {
-        setTitle(task.title);
-        setDescription(task.description || '');
-        setStatus(task.status);
-        setPriority(task.priority);
-        setTags(task.tags ? task.tags.join(', ') : '');
-        setStartDate(task.startDate ? task.startDate.split('T')[0] : '');
-        setDueDate(task.dueDate ? task.dueDate.split('T')[0] : '');
-        setAssigneeId(task.assigneeId || '');
+      setTitle(task.title);
+      setDescription(task.description || '');
+      setStatus(task.status);
+      setPriority(task.priority);
+      setTags(task.tags ? task.tags.join(', ') : '');
+      setStartDate(task.startDate ? task.startDate.split('T')[0] : '');
+      setDueDate(task.dueDate ? task.dueDate.split('T')[0] : '');
+      setAssigneeId(task.assigneeId || '');
     }
   }, [isOpen, task]);
 
   if (!isOpen || !task) return null;
 
+  /** Xử lý gửi các cập nhật lên Backend */
   const handleSave = () => {
     if (!title.trim()) return;
 
@@ -60,130 +66,85 @@ const EditTaskModal: React.FC<EditTaskModalProps> = ({
   return (
     <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
       <div className="bg-[#1e293b] rounded-xl shadow-2xl w-full max-w-lg border border-slate-700 animate-in fade-in zoom-in duration-200">
-        
+
         {/* Header */}
         <div className="flex justify-between items-center p-5 border-b border-slate-700">
           <h3 className="text-xl font-bold text-white">Edit Task</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-white transition">
-            <X size={24} />
-          </button>
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition"><X size={24} /></button>
         </div>
 
-        {/* Body */}
+        {/* Nội dung Form */}
         <div className="p-6 space-y-5">
-          
-          {/* Title */}
+          {/* Tiêu đề */}
           <div>
-            <input 
+            <label className="block text-xs font-semibold text-slate-400 mb-1">Title</label>
+            <input
               autoFocus
-              className="w-full bg-slate-800 border border-slate-600 p-3 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none transition" 
-              placeholder="Task Title" 
+              className="w-full bg-slate-800 border border-slate-600 p-3 rounded-lg text-white"
               value={title}
               onChange={e => setTitle(e.target.value)}
             />
           </div>
 
-          {/* Description */}
+          {/* Mô tả */}
           <div>
-            <textarea 
-              className="w-full bg-slate-800 border border-slate-600 p-3 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none transition resize-none h-24" 
-              placeholder="Description..." 
+            <label className="block text-xs font-semibold text-slate-400 mb-1">Description</label>
+            <textarea
+              className="w-full bg-slate-800 border border-slate-600 p-3 rounded-lg text-white h-24 resize-none"
               value={description}
               onChange={e => setDescription(e.target.value)}
             />
           </div>
 
-          {/* Row: Status & Priority */}
+          {/* Trạng thái & Độ ưu tiên */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="relative">
+            <div>
               <label className="block text-xs font-semibold text-slate-400 mb-1">Status</label>
-              <select 
-                className="w-full bg-slate-800 border border-slate-600 p-2.5 rounded-lg text-white appearance-none focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                value={status}
-                onChange={e => setStatus(e.target.value as TaskStatus)}
-              >
+              <select className="w-full bg-slate-800 border border-slate-600 p-2.5 rounded-lg text-white" value={status} onChange={e => setStatus(e.target.value as TaskStatus)}>
                 {Object.values(TaskStatus).map(s => <option key={s} value={s}>{s}</option>)}
               </select>
-              <AlertCircle className="absolute right-3 top-8 text-slate-500 pointer-events-none" size={16} />
             </div>
-
-            <div className="relative">
+            <div>
               <label className="block text-xs font-semibold text-slate-400 mb-1">Priority</label>
-              <select 
-                className="w-full bg-slate-800 border border-slate-600 p-2.5 rounded-lg text-white appearance-none focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                value={priority}
-                onChange={e => setPriority(e.target.value as Priority)}
-              >
+              <select className="w-full bg-slate-800 border border-slate-600 p-2.5 rounded-lg text-white" value={priority} onChange={e => setPriority(e.target.value as Priority)}>
                 {Object.values(Priority).map(p => <option key={p} value={p}>{p}</option>)}
               </select>
-              <Flag className="absolute right-3 top-8 text-slate-500 pointer-events-none" size={16} />
             </div>
           </div>
 
-          {/* Tags */}
+          {/* Thẻ (Tags) */}
           <div className="relative">
-             <input 
-                className="w-full bg-slate-800 border border-slate-600 p-3 pl-10 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none" 
-                placeholder="Tags (comma separated)" 
-                value={tags}
-                onChange={e => setTags(e.target.value)}
-             />
-             <Tag className="absolute left-3 top-3.5 text-slate-500" size={18} />
+            <input className="w-full bg-slate-800 border border-slate-600 p-3 pl-10 rounded-lg text-white" value={tags} onChange={e => setTags(e.target.value)} />
+            <Tag className="absolute left-3 top-3.5 text-slate-500" size={18} />
           </div>
 
-          {/* Row: Dates */}
+          {/* Ngày tháng */}
           <div className="grid grid-cols-2 gap-4">
-             <div className="relative">
-                <input 
-                  type="date"
-                  className="w-full bg-slate-800 border border-slate-600 p-3 pl-10 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none [color-scheme:dark]" 
-                  value={startDate}
-                  onChange={e => setStartDate(e.target.value)}
-                />
-                <Calendar className="absolute left-3 top-3.5 text-slate-500" size={18} />
-             </div>
-             <div className="relative">
-                <input 
-                  type="date"
-                  className="w-full bg-slate-800 border border-slate-600 p-3 pl-10 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none [color-scheme:dark]" 
-                  value={dueDate}
-                  onChange={e => setDueDate(e.target.value)}
-                />
-                <Calendar className="absolute left-3 top-3.5 text-slate-500" size={18} />
-             </div>
+            <div className="relative">
+              <input type="date" className="w-full bg-slate-800 border border-slate-600 p-3 pl-10 rounded-lg text-white [color-scheme:dark]" value={startDate} onChange={e => setStartDate(e.target.value)} />
+              <Calendar className="absolute left-3 top-3.5 text-slate-500" size={18} />
+            </div>
+            <div className="relative">
+              <input type="date" className="w-full bg-slate-800 border border-slate-600 p-3 pl-10 rounded-lg text-white [color-scheme:dark]" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+              <Calendar className="absolute left-3 top-3.5 text-slate-500" size={18} />
+            </div>
           </div>
 
-          {/* Assignee */}
+          {/* Phân công cho */}
           <div className="relative">
-             <select 
-                className="w-full bg-slate-800 border border-slate-600 p-3 pl-10 rounded-lg text-white appearance-none focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                value={assigneeId}
-                onChange={e => setAssigneeId(e.target.value)}
-             >
-                <option value="">Unassigned</option>
-                {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.email})</option>)}
-             </select>
-             <UserIcon className="absolute left-3 top-3.5 text-slate-500" size={18} />
+            <select className="w-full bg-slate-800 border border-slate-600 p-3 pl-10 rounded-lg text-white" value={assigneeId} onChange={e => setAssigneeId(e.target.value)}>
+              <option value="">Unassigned</option>
+              {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
+            <UserIcon className="absolute left-3 top-3.5 text-slate-500" size={18} />
           </div>
-
         </div>
 
-        {/* Footer */}
-        <div className="p-5 border-t border-slate-700 bg-slate-800/50 rounded-b-xl flex justify-end gap-3">
-           <button 
-             onClick={onClose}
-             className="px-5 py-2.5 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg font-medium transition"
-           >
-             Cancel
-           </button>
-           <button 
-             onClick={handleSave}
-             className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-semibold shadow-lg shadow-indigo-900/20 transition w-full sm:w-auto"
-           >
-             Save Changes
-           </button>
+        {/* Nút bấm */}
+        <div className="p-5 border-t border-slate-700 bg-slate-800/50 flex justify-end gap-3 rounded-b-xl">
+          <button onClick={onClose} className="px-5 py-2.5 text-slate-300">Cancel</button>
+          <button onClick={handleSave} className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold shadow-lg">Save Changes</button>
         </div>
-
       </div>
     </div>
   );

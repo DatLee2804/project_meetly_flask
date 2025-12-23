@@ -22,6 +22,14 @@ class TaskRepository(BaseRepository):
         
         return query.all()
 
+    def get_tasks_by_user(self, user_id: str, status_filter: Optional[str] = None) -> List[Task]:
+        """Lấy danh sách Tasks được giao cho User."""
+        query = self.db.query(Task).filter(Task.assignee_id == user_id)
+        if status_filter:
+            query = query.filter(Task.status == status_filter)
+        query = query.options(joinedload(Task.project), joinedload(Task.author))
+        return query.all()
+
     def update_task_field(self, task_id: str, update_data: Dict[str, Any]) -> Optional[Task]:
         """Cập nhật các trường cụ thể của Task theo ID."""
         task = self.get_by_id(task_id)

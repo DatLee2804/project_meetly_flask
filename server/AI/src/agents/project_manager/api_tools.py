@@ -9,11 +9,27 @@ import requests
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+import contextvars
 
 load_dotenv()
 
 # Backend API base URL
-API_BASE_URL = os.environ.get('API_BASE_URL', 'http://localhost:3000')
+API_BASE_URL = os.environ.get('API_BASE_URL', 'http://localhost:8000/api/v1')
+
+# ContextVar để lưu Token cho từng request (Thread-safe)
+_api_token_ctx = contextvars.ContextVar('api_token', default=None)
+
+def set_api_token(token: str):
+    """Set token cho context hiện tại."""
+    _api_token_ctx.set(token)
+
+def _get_headers() -> Dict[str, str]:
+    """Tạo headers kèm Token nếu có."""
+    headers = {"Content-Type": "application/json"}
+    token = _api_token_ctx.get()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
 
 # --- HELPER FUNCTIONS (CORE) ---
 def _api_get(endpoint: str, params: Dict = None) -> Dict[str, Any]:
@@ -22,7 +38,7 @@ def _api_get(endpoint: str, params: Dict = None) -> Dict[str, Any]:
         response = requests.get(
             f"{API_BASE_URL}{endpoint}",
             params=params,
-            headers={"Content-Type": "application/json"},
+            headers=_get_headers(),
             timeout=30
         )
         if response.status_code == 200:
@@ -38,7 +54,7 @@ def _api_post(endpoint: str, data: Dict) -> Dict[str, Any]:
         response = requests.post(
             f"{API_BASE_URL}{endpoint}",
             json=data,
-            headers={"Content-Type": "application/json"},
+            headers=_get_headers(),
             timeout=30
         )
         if response.status_code == 201:
@@ -54,7 +70,7 @@ def _api_patch(endpoint: str, data: Dict) -> Dict[str, Any]:
         response = requests.patch(
             f"{API_BASE_URL}{endpoint}",
             json=data,
-            headers={"Content-Type": "application/json"},
+            headers=_get_headers(),
             timeout=30
         )
         if response.status_code == 200:
@@ -81,54 +97,68 @@ def _summarize_tasks(tasks: List[Dict]) -> Dict[str, Any]:
 # Hàm này giúp tìm ID từ tên, giúp user không cần nhớ ID
 
 def _resolve_project_id(name_or_id: str) -> Optional[str]:
-    """Tìm Project ID từ tên hoặc trả về chính nó nếu là ID hợp lệ."""
+    """Tìm Project ID từ tên (Sử dụng Search API trước, fallback về list)."""
     if not name_or_id: return None
     
-    # Nếu trông giống UUID hoặc ID số, trả về luôn (giả định)
+    # 1. Nếu là ID (UUID), trả về luôn
     if len(name_or_id) > 20 and "-" in name_or_id: 
         return name_or_id
         
-    # Gọi API lấy danh sách project để tìm
-    result = _api_get("/projects") # Giả định endpoint list projects
+    # 2. Sử dụng Search API (Hiệu quả hơn là fetch 100 projects về)
+    print(f"🔍 Searching project by name via API: {name_or_id}")
+    search_res = _api_get("/search", params={"query": name_or_id})
+    if search_res["success"] and search_res["data"]["projects"]:
+        # Logic: Chọn kết quả đầu tiên (độ chính xác cao nhất từ backend search)
+        return search_res["data"]["projects"][0]["id"]
+
+    # 3. Fallback: Fetch list project (Nếu search API chưa ngon hoặc ít project)
+    print("⚠️ Search API returned no projects, trying list fallback...")
+    result = _api_get("/projects")
     if not result["success"]: return None
     
     projects = result["data"]
-    # 1. Tìm chính xác (Case insensitive)
+    search_key = name_or_id.lower()
+    
     for p in projects:
-        if p.get("name", "").lower() == name_or_id.lower():
+        if p.get("name", "").lower() == search_key:
+            return p.get("id")
+    for p in projects:
+        if search_key in p.get("name", "").lower():
             return p.get("id")
             
-    # 2. Tìm gần đúng (Contains)
-    for p in projects:
-        if name_or_id.lower() in p.get("name", "").lower():
-            return p.get("id")
-            
-    return None # Không tìm thấy
+    return None
 
 def _resolve_user_id(name_email_or_id: str) -> Optional[str]:
-    """Tìm User ID từ tên, email hoặc trả về chính nó."""
+    """Tìm User ID từ tên/email (Sử dụng Search API trước)."""
     if not name_email_or_id: return None
     
     if len(name_email_or_id) > 20 and "-" in name_email_or_id:
         return name_email_or_id
         
-    result = _api_get("/users") # Giả định endpoint list users
+    # 2. Search API
+    print(f"🔍 Searching user via API: {name_email_or_id}")
+    search_res = _api_get("/search", params={"query": name_email_or_id})
+    if search_res["success"] and search_res["data"]["users"]:
+        return search_res["data"]["users"][0]["id"]
+        
+    # 3. Fallback: Fetch list users
+    print("⚠️ Search API returned no users, trying list fallback...")
+    result = _api_get("/users")
     if not result["success"]: return None
     
     users = result["data"]
     search_key = name_email_or_id.lower()
     
-    # 1. Tìm chính xác Email hoặc Username
     for u in users:
+        # Check exact
         if (u.get("email", "").lower() == search_key or 
             u.get("username", "").lower() == search_key):
             return u.get("id")
-            
-    # 2. Tìm gần đúng (Contains in name/email)
+    
     for u in users:
-        if (search_key in u.get("email", "").lower() or 
-            search_key in u.get("username", "").lower() or
-            search_key in u.get("full_name", "").lower()):
+        # Check contains
+        val_str = f"{u.get('email', '')} {u.get('username', '')} {u.get('name', '')}".lower()
+        if search_key in val_str:
             return u.get("id")
             
     return None
@@ -237,18 +267,19 @@ def create_task(
     today = datetime.now().strftime("%Y-%m-%d")
     payload = {
         "title": title,
-        "projectId": final_project_id,
-        "authorUserId": author_user_id,
-        "startDate": today,
+        "project_id": final_project_id,
+        "author_id": author_user_id,
+        # "start_date": today, # Task model uses created_at by default
     }
     
     if description: payload["description"] = description
     if priority: payload["priority"] = priority
     if status: payload["status"] = status
-    if due_date: payload["dueDate"] = due_date
-    if final_assignee_id: payload["assignedUserId"] = final_assignee_id
+    if due_date: payload["due_date"] = due_date
+    if final_assignee_id: payload["assignee_id"] = final_assignee_id
     
-    result = _api_post("/tasks", payload)
+    # Use trailing slash to match router prefix convention and avoid 307
+    result = _api_post("/tasks/", payload)
     
     if result["success"]:
         task = result["data"]

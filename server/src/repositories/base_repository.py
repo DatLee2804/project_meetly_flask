@@ -36,6 +36,7 @@ class BaseRepository:
         try:
             self.db.add(db_obj)
             self.db.commit()
+            print(f"✅ [DEBUG] COMMITTED to DB: {db_obj}")
             self.db.refresh(db_obj)
             return db_obj
         except exc.IntegrityError:

@@ -16,6 +16,7 @@ export interface Project {
   id: string;
   name: string;
   description: string;
+  ownerId?: string; // ID của người tạo (Manager)
   members: string[]; // User IDs
 }
 
@@ -45,6 +46,7 @@ export interface Task {
   assigneeId: string;
   projectId: string;
   comments: number;
+  createdAt: string; // ISO Date string
   assignee?: User; // Dữ liệu người được gán, được gán thêm lúc fetch
 }
 
@@ -63,12 +65,12 @@ export interface Meeting {
 }
 
 export enum ViewMode {
-    LIST = 'LIST',
-    KANBAN = 'KANBAN',
-    BOARD = 'BOARD',
-    TIMELINE = 'TIMELINE',
-    TABLE = 'TABLE',
-    MEETING = 'MEETING'
+  LIST = 'LIST',
+  KANBAN = 'KANBAN',
+  BOARD = 'BOARD',
+  TIMELINE = 'TIMELINE',
+  TABLE = 'TABLE',
+  MEETING = 'MEETING'
 }
 
 export interface TaskColumn {
@@ -79,37 +81,37 @@ export interface TaskColumn {
 }
 
 export interface NewTask {
-    title: string;
-    description?: string;
-    priority?: Priority;
-    assigneeId?: string;
-    projectId: string;
-    dueDate?: string;
-    tags?: string[];
+  title: string;
+  description?: string;
+  priority?: Priority;
+  assigneeId?: string;
+  projectId: string;
+  dueDate?: string;
+  tags?: string[];
 }
 
 export interface ProjectCreate {
-    name: string;
-    description?: string;
-    memberIds: string[];
+  name: string;
+  description?: string;
+  memberIds: string[];
 }
 
 export interface MeetingCreate {
-    title: string;
-    description?: string;
-    startDate: string;
-    endDate: string;
-    projectId: string;
-    attendeeIds: string[];
-    recordingUrl?: string;
+  title: string;
+  description?: string;
+  startDate: string;
+  endDate: string;
+  projectId: string;
+  attendeeIds: string[];
+  recordingUrl?: string;
 }
 
 export interface TaskUpdate { // <-- THÊM EXPORT CHO TASK UPDATE
-    title?: string;
-    description?: string;
-    status?: TaskStatus;
-    priority?: Priority;
-    tags?: string[];
-    dueDate?: string;
-    assigneeId?: string;
+  title?: string;
+  description?: string;
+  status?: TaskStatus;
+  priority?: Priority;
+  tags?: string[];
+  dueDate?: string;
+  assigneeId?: string;
 }

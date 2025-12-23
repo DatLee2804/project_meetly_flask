@@ -1,10 +1,20 @@
-// src/App.tsx
+/**
+ * client/app.tsx
+ * Tệp tin gốc (Root Component) của ứng dụng Meetly.
+ * Nhiệm vụ chính:
+ * 1. Quản lý trạng thái toàn cục (User, Tasks, Projects, Meetings).
+ * 2. Điều phối điều hướng (Routing) giữa Landing Page, Auth Page và Main Dashboard.
+ * 3. Xử lý các logic chính như CRUD (Thêm/Xóa/Sửa) các thực thể.
+ * 4. Quản lý trạng thái hiển thị của các Modal (Cửa sổ bật lên).
+ */
+
 import React, { useState, useEffect } from 'react';
-import { Layout, List, Clock, Table as TableIcon, Video, Plus, Settings, X, ChevronDown, MessageSquare, Search, LogOut } from 'lucide-react';
+import { Layout, List, Clock, Table as TableIcon, Video, Plus, Settings, X, ChevronDown, MessageSquare, Search, LogOut, Menu } from 'lucide-react';
 import { User, Task, Project, Meeting, TaskStatus, Priority, ViewMode } from './types';
-import * as api from './api/mockApi'; // Hoặc import realApi
-import { AuthProvider, useAuth } from './context/AuthContext'; // Đảm bảo đã import
-// Import Components
+import * as api from './api/mockApi';
+import { AuthProvider, useAuth } from './context/AuthContext';
+
+// Import các thành phần giao diện (Components)
 import Sidebar from './components/layout/Sidebar';
 import AuthPage from './pages/AuthPage';
 import Dashboard from './pages/Dashboard';
@@ -13,471 +23,379 @@ import TimelineView from './components/shared/TimelineView';
 import MeetingView from './pages/MeetingView';
 import UserSettings from './pages/Settings';
 import TeamsView from './pages/Teams';
-import CreateProjectModal from './components/modals/CreateProjectModal'; // <--- IMPORT MỚI
+import LandingPage from './pages/LandingPage';
+
+// Import các cửa sổ chức năng (Modals)
+import CreateProjectModal from './components/modals/CreateProjectModal';
 import CreateTaskModal from './components/modals/CreateTaskModal';
 import AddColumnModal from './components/modals/AddColumnModal';
 import EditColumnModal from './components/modals/EditColumnModal';
 import EditTaskModal from './components/modals/EditTaskModal';
 import CreateMeetingModal from './components/modals/CreateMeetingModal';
 import ChatWidget from './components/shared/ChatWidget';
-// Mock Teams View placeholder nếu chưa kịp tạo file
-const TeamsPlaceholder: React.FC<any> = () => <div className="p-8">Teams View Under Construction</div>;
 
 export default function App() {
-  const { user: currentUser, isLoading, login, logout } = useAuth();  // Data State
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const [users, setUsers] = useState<User[]>([]); // Toàn bộ user trong hệ thống
+  // --- QUẢN LÝ DỮ LIỆU (DATA STATE) ---
+  const { user: currentUser, isLoading, login, logout } = useAuth();  // Thông tin đăng nhập từ Context
+  const [tasks, setTasks] = useState<Task[]>([]);                    // Danh sách công việc
+  const [projects, setProjects] = useState<Project[]>([]);              // Danh sách dự án
+  const [meetings, setMeetings] = useState<Meeting[]>([]);              // Danh sách cuộc họp
+  const [users, setUsers] = useState<User[]>([]);                       // Danh sách người dùng hệ thống
 
-  // View State
-  const [activeProject, setActiveProject] = useState<Project | null>(null);
-  const [dashboardView, setDashboardView] = useState<'HOME' | 'TIMELINE' | 'TEAMS'>('HOME');
-  const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.KANBAN);
+  // --- QUẢN LÝ HIỂN THỊ (VIEW STATE) ---
+  const [activeProject, setActiveProject] = useState<Project | null>(null); // Dự án đang được chọn
+  const [dashboardView, setDashboardView] = useState<'HOME' | 'TIMELINE' | 'TEAMS'>('HOME'); // Chế độ xem tổng quan
+  const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.KANBAN);   // Chế độ xem trong dự án (Board, List, ...)
+  const [boardColumns, setBoardColumns] = useState<string[]>(Object.values(TaskStatus)); // Các cột trong Kanban
+
+  // --- TRẠNG THÁI MODALS & UI ---
   const [isAddColumnModalOpen, setAddColumnModalOpen] = useState(false);
-  const [boardColumns, setBoardColumns] = useState<string[]>(Object.values(TaskStatus));
-  const [showChat, setShowChat] = useState(false);
   const [isEditColumnModalOpen, setEditColumnModalOpen] = useState(false);
   const [currentEditingColumn, setCurrentEditingColumn] = useState<string>('');
   const [isEditTaskModalOpen, setEditTaskModalOpen] = useState(false);
   const [taskToEdit, setTaskToEdit] = useState<Task | null>(null);
   const [isMeetingModalOpen, setMeetingModalOpen] = useState(false);
-  // Modals
   const [isTaskModalOpen, setTaskModalOpen] = useState(false);
   const [isUserSettingsOpen, setIsUserSettingsOpen] = useState(false);
-  const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isCreateProjectModalOpen, setCreateProjectModalOpen] = useState(false);
- // ... (Thêm các state modal khác như CreateProject, CreateMeeting tương tự file AI)
- // ... trong src/App.tsx
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [showAuth, setShowAuth] = useState(false); // Chuyển đổi giữa Landing Page và Login/Register
+  const [isEntryDone, setIsEntryDone] = useState(false); // Theo dõi việc người dùng đã bắt đầu vào App hay chưa
 
-  // src/App.tsx
-
-  // --- SỬA LẠI HÀM NÀY ---
+  /**
+   * Thêm thành viên vào dự án.
+   * Quy trình: Gọi API -> Cập nhật danh sách Project cục bộ -> Cập nhật danh sách User cục bộ.
+   */
   const handleAddMember = async (projectId: string, email: string) => {
     try {
-        // 1. Gọi API thêm thành viên
-        const newMember = await api.addMemberToProject(projectId, email);
-        
-        // 2. Nếu thành công (không bị lỗi), cập nhật state Projects
-        setProjects(prev => prev.map(p => {
-            if (p.id === projectId) {
-                // Thêm ID thành viên mới vào danh sách members của project
-                return { ...p, members: [...p.members, newMember.id] };
-            }
-            return p;
-        }));
-
-        // 3. Cập nhật luôn danh sách Users cục bộ (để hiển thị Avatar, Tên...)
-        setUsers(prev => {
-            // Chỉ thêm nếu chưa có trong list
-            if (!prev.find(u => u.id === newMember.id)) {
-                return [...prev, newMember];
-            }
-            return prev;
-        });
-
-        alert(`${newMember.name} added to the team successfully!`);
-
+      const newMember = await api.addMemberToProject(projectId, email);
+      setProjects(prev => prev.map(p => {
+        if (p.id === projectId) {
+          return { ...p, members: [...p.members, newMember.id] };
+        }
+        return p;
+      }));
+      setUsers(prev => {
+        if (!prev.find(u => u.id === newMember.id)) {
+          return [...prev, newMember];
+        }
+        return prev;
+      });
+      alert(`${newMember.name} added to the team successfully!`);
     } catch (error) {
-        // Hiển thị lỗi từ Backend (ví dụ: User not found, Already member...)
-        alert(`Error: ${error}`);
+      alert(`Error: ${error}`);
     }
   };
-  // --- Initial Data Fetch ---
-  useEffect(() => {
-    if (currentUser) {
-        const fetchData = async () => {
-            try {
-                // 1. GỌI HÀM MỚI: Lấy cả Project lẫn Users
-                const { projects: fetchedProjects, users: fetchedUsers } = await api.getInitialData();
-                
-                setProjects(fetchedProjects);
-                
-                // QUAN TRỌNG: Cập nhật danh sách users toàn cục
-                // Gộp fetchedUsers với currentUser để đảm bảo không thiếu chính mình
-                const allUsersMap = new Map();
-                // Ưu tiên currentUser (để có dữ liệu mới nhất)
-                allUsersMap.set(currentUser.id, currentUser); 
-                // Thêm các user lấy được từ Project
-                fetchedUsers.forEach(u => allUsersMap.set(u.id, u));
-                
-                setUsers(Array.from(allUsersMap.values())); 
 
-                // ... (Phần fetch tasks/meetings giữ nguyên)
-                const taskPromises = fetchedProjects.map(p => api.getTasksByProject(p.id));
-                const allTasks = (await Promise.all(taskPromises)).flat();
-                setTasks(allTasks);
-
-                const meetingPromises = fetchedProjects.map(p => api.getMeetingsByProject(p.id));
-                const allMeetings = (await Promise.all(meetingPromises)).flat();
-                setMeetings(allMeetings);
-
-            } catch (error) {
-                console.error("Error fetching data", error);
-            }
-        };
-        fetchData();
+  /**
+   * Xóa thành viên khỏi dự án.
+   */
+  const handleRemoveMember = async (projectId: string, userId: string) => {
+    try {
+      await api.removeProjectMember(projectId, userId);
+      setProjects(prev => prev.map(p => {
+        if (p.id === projectId) {
+          return { ...p, members: p.members.filter(mId => mId !== userId) };
+        }
+        return p;
+      }));
+      // Lưu ý: Không xóa khỏi Users vì user đó có thể ở dự án khác
+      // Hoặc nếu muốn thì chỉ xóa nếu không còn common project nào (phức tạp hơn)
+      alert('Member removed successfully from the team.');
+    } catch (error) {
+      alert(`Error removing member: ${error}`);
     }
+  };
+
+  /**
+   * Làm mới toàn bộ dữ liệu từ Server.
+   * Lấy: Projects, Users liên quan, Tasks và Meetings.
+   */
+  const refreshData = async () => {
+    if (!currentUser) return;
+    try {
+      const { projects: fetchedProjects, users: fetchedUsers } = await api.getInitialData();
+      setProjects(fetchedProjects);
+
+      const allUsersMap = new Map();
+      allUsersMap.set(currentUser.id, currentUser);
+      fetchedUsers.forEach(u => allUsersMap.set(u.id, u));
+      setUsers(Array.from(allUsersMap.values()));
+
+      const taskPromises = fetchedProjects.map(p => api.getTasksByProject(p.id));
+      const allTasks = (await Promise.all(taskPromises)).flat();
+      setTasks(allTasks);
+
+      const meetingPromises = fetchedProjects.map(p => api.getMeetingsByProject(p.id));
+      const allMeetings = (await Promise.all(meetingPromises)).flat();
+      setMeetings(allMeetings);
+
+    } catch (error) {
+      console.error("Error fetching data", error);
+    }
+  };
+
+  // Tự động tải dữ liệu khi User đăng nhập thành công
+  useEffect(() => {
+    refreshData();
   }, [currentUser]);
 
+  // Hiển thị màn hình chờ khi đang kiểm tra session
   if (isLoading) {
     return <div className="flex h-screen items-center justify-center bg-slate-50">Loading...</div>;
   }
-  if (!currentUser) {
-    return <AuthPage />; // Không cần truyền onLogin nữa
+
+  // Điều hướng người dùng: Luôn hiện Landing Page trước (kể cả khi đã login)
+  // Nếu chưa hoàn thành bước "vào" app (isEntryDone) và không ở trang Auth
+  // FIX: Nếu đã có currentUser (đã login) thì không hiện Landing Page nữa để tránh thoát ra khi F5
+  if (!isEntryDone && !showAuth && !currentUser) {
+    return (
+      <LandingPage onGetStarted={() => {
+        if (currentUser) {
+          setIsEntryDone(true); // Nếu đã login, vào thẳng Dashboard
+        } else {
+          setShowAuth(true);    // Nếu chưa login, sang trang Auth
+        }
+      }} />
+    );
   }
 
-  // Helper logic
+  // Nếu chưa đăng nhập (và đã qua bước Landing)
+  if (!currentUser) {
+    return <AuthPage />;
+  }
+
+  // --- CÁC HÀM XỬ LÝ (HANDLERS) ---
+
+  const handleLogout = () => {
+    setTasks([]);
+    setProjects([]);
+    setIsEntryDone(false);
+    setShowAuth(false);
+    logout();
+  };
+
+  /** Di chuyển Task giữa các cột (Dùng cho kéo thả) */
+  const handleTaskMove = (taskId: string, newStatus: string) => {
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus as TaskStatus } : t));
+    api.updateTaskStatus(taskId, newStatus as TaskStatus);
+  };
+
+  /** Tạo dự án mới */
+  const handleCreateProject = async (projectData: { name: string; description: string; memberIds: string[] }) => {
+    try {
+      const newProject = await api.createProject(projectData, currentUser.id);
+      setProjects([...projects, newProject]);
+      setActiveProject(newProject);
+      setCreateProjectModalOpen(false);
+      alert("Project created successfully!");
+    } catch (error) {
+      console.error("Failed to create project:", error);
+    }
+  };
+
+  /** Tạo công việc mới */
+  const handleCreateTask = async (taskData: any) => {
+    try {
+      const newTask = await api.createTask(taskData, currentUser!.id);
+      setTasks(prev => [...prev, newTask]);
+      setTaskModalOpen(false);
+    } catch (error) {
+      console.error("Failed to create task:", error);
+    }
+  };
+
+  /** Đổi tên cột trong Kanban */
+  const handleRenameColumn = (newTitle: string) => {
+    if (boardColumns.includes(newTitle)) {
+      alert("Column name already exists!");
+      return;
+    }
+    setBoardColumns(prev => prev.map(c => c === currentEditingColumn ? newTitle : c));
+    setTasks(prev => prev.map(t =>
+      t.status === currentEditingColumn ? { ...t, status: newTitle as TaskStatus } : t
+    ));
+    setEditColumnModalOpen(false);
+  };
+
+  /** Tạo cuộc họp mới */
+  const handleCreateMeeting = async (meetingData: any) => {
+    if (!activeProject) {
+      alert("Please select a project first!");
+      return;
+    }
+    try {
+      const meetingPayload = { ...meetingData, projectId: activeProject.id };
+      const newMeeting = await api.createMeeting(meetingPayload, currentUser!.id);
+      setMeetings([...meetings, newMeeting]);
+      setMeetingModalOpen(false);
+      alert("Meeting scheduled successfully!");
+    } catch (error) {
+      console.error("Failed to schedule meeting:", error);
+    }
+  };
+
+  // --- CÁC HÀM XÓA (DELETE) ---
+  const handleDeleteTask = async (taskId: string) => {
+    try {
+      await api.deleteTask(taskId);
+      setTasks(prev => prev.filter(t => t.id !== taskId));
+    } catch (err) { console.error(err); }
+  };
+
+  const handleDeleteMeeting = async (meetingId: string) => {
+    try {
+      await api.deleteMeeting(meetingId);
+      setMeetings(prev => prev.filter(m => m.id !== meetingId));
+    } catch (err) { console.error(err); }
+  };
+
+  const handleDeleteProject = async (projectId: string) => {
+    try {
+      await api.deleteProject(projectId);
+      setProjects(prev => prev.filter(p => p.id !== projectId));
+      if (activeProject?.id === projectId) {
+        setActiveProject(null);
+        setDashboardView('HOME');
+      }
+    } catch (err) { console.error(err); }
+  };
+
+  // Helper lọc dữ liệu cho dự án đang chọn
   const currentProjectTasks = activeProject ? tasks.filter(t => t.projectId === activeProject.id) : [];
   const currentProjectMeetings = activeProject ? meetings.filter(m => m.projectId === activeProject.id) : [];
 
-  const handleLogout = () => {
-    // setCurrentUser(null); <--- XÓA DÒNG NÀY (hoặc comment lại)
-    
-    setTasks([]);
-    setProjects([]);
-    logout(); // Hàm này đã lo việc set user về null rồi
-  };
-
-  const handleTaskMove = (taskId: string, newStatus: string) => {
-      // Cập nhật UI ngay lập tức
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus as TaskStatus } : t));
-      // Gọi API cập nhật
-      api.updateTaskStatus(taskId, newStatus as TaskStatus);
-  };
-  // --- Handlers cho Create Project ---
-  const handleCreateProject = async (projectData: { name: string; description: string; memberIds: string[] }) => {
-    try {
-        const newProject = await api.createProject(projectData, currentUser.id);
-        setProjects([...projects, newProject]);
-        setActiveProject(newProject);
-        setCreateProjectModalOpen(false); // Đóng modal sau khi tạo xong
-        alert("Project created successfully!");
-    } catch (error) {
-        console.error("Failed to create project:", error);
-    }
-  };
-  // --- Handlers cho Create Task ---
-  const handleCreateTask = async (taskData: any) => {
-    try {
-        const newTask = await api.createTask(taskData, currentUser!.id);
-        setTasks(prev => [...prev, newTask]);
-        
-        setTaskModalOpen(false);
-        // alert("Task created successfully!"); // Comment lại nếu thấy phiền
-    } catch (error) {
-        console.error("Failed to create task:", error);
-    }
-  };
-  // --- Handlers cho Create Column ---
-  const handleAddColumn = (newColumnTitle: string) => {
-    if (boardColumns.includes(newColumnTitle)) {
-      alert("Column already exists!");
-      return;
-    }
-    setBoardColumns([...boardColumns, newColumnTitle]);
-    setAddColumnModalOpen(false);
-  };
-  // --- Handlers Edit Column ---
-  
-  // Mở modal
-  const handleOpenEditColumn = (columnTitle: string) => {
-      setCurrentEditingColumn(columnTitle);
-      setEditColumnModalOpen(true);
-  };
-
-  // Đổi tên cột
-  const handleRenameColumn = (newTitle: string) => {
-      if (boardColumns.includes(newTitle)) {
-          alert("Column name already exists!");
-          return;
-      }
-
-      // 1. Cập nhật danh sách cột
-      setBoardColumns(prev => prev.map(c => c === currentEditingColumn ? newTitle : c));
-
-      // 2. Cập nhật status của tất cả Tasks đang ở cột cũ sang tên mới
-      // (Quan trọng: nếu không làm bước này, task sẽ biến mất khỏi board)
-      setTasks(prev => prev.map(t => 
-          t.status === currentEditingColumn ? { ...t, status: newTitle as TaskStatus } : t
-      ));
-
-      setEditColumnModalOpen(false);
-  };
-
-  // Xóa cột
-  const handleDeleteColumn = () => {
-      const confirm = window.confirm(`Delete column "${currentEditingColumn}"? Tasks will be moved to the first available column.`);
-      if (!confirm) return;
-
-      const remainingColumns = boardColumns.filter(c => c !== currentEditingColumn);
-      
-      if (remainingColumns.length === 0) {
-          alert("You cannot delete the last column!");
-          return;
-      }
-
-      // Di chuyển task sang cột đầu tiên còn lại
-      const fallbackColumn = remainingColumns[0];
-      setTasks(prev => prev.map(t => 
-          t.status === currentEditingColumn ? { ...t, status: fallbackColumn as TaskStatus } : t
-      ));
-
-      setBoardColumns(remainingColumns);
-      setEditColumnModalOpen(false);
-  };
-  // 1. Thêm State lưu task đang sửa
-
-  // 2. KHAI BÁO HÀM handleOpenEditTask (Cái bồ đang thiếu nè)
-  const handleOpenEditTask = (task: Task) => {
-      setTaskToEdit(task);
-      setEditTaskModalOpen(true);
-  };
-
-  // 3. KHAI BÁO HÀM handleUpdateTask (Để lưu sau khi sửa)
-  const handleUpdateTask = async (taskId: string, updates: any) => {
-      try {
-          // Gọi API update (đảm bảo api.updateTask đã có)
-          await api.updateTask(taskId, updates);
-          
-          // Cập nhật giao diện ngay lập tức
-          setTasks(prev => prev.map(t => 
-              t.id === taskId ? { ...t, ...updates } : t
-          ));
-
-          setEditTaskModalOpen(false);
-          setTaskToEdit(null);
-      } catch (error) {
-          console.error("Failed to update task:", error);
-      }
-  };
-  // src/App.tsx
-
-  const handleCreateMeeting = async (meetingData: any) => {
-      // Check kỹ xem có Project chưa
-      if (!activeProject) {
-          alert("Please select a project first!");
-          return;
-      }
-
-      try {
-          // Gộp thêm projectId vào dữ liệu gửi đi
-          const meetingPayload = {
-              ...meetingData,
-              projectId: activeProject.id 
-          };
-
-          const newMeeting = await api.createMeeting(meetingPayload, currentUser!.id);
-          
-          // Cập nhật State để hiện ngay lên giao diện
-          setMeetings([...meetings, newMeeting]);
-          setMeetingModalOpen(false);
-          alert("Meeting scheduled successfully!");
-      } catch (error) {
-          console.error("Failed to schedule meeting:", error);
-          alert("Failed to save meeting to database.");
-      }
-  };
-
-  console.log("Dashboard view: ", dashboardView)
-
-  
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-900">
-      <Sidebar 
-        currentUser={currentUser}
-        projects={projects}
-        activeProject={activeProject}
-        onSelectProject={(p) => { setActiveProject(p); if(p) setViewMode(ViewMode.BOARD); }}
-        dashboardView={dashboardView}
-        setDashboardView={setDashboardView}
-        onLogout={handleLogout}
-        onToggleChat={() => setShowChat(!showChat)}
-        onCreateProject={() => setCreateProjectModalOpen(true)} 
-        onOpenSettings={() => setIsUserSettingsOpen(true)}
-      />
+    <div className="flex h-screen bg-slate-50 text-slate-900 relative">
+      {/* Lớp phủ cho Mobile Sidebar */}
+      {isSidebarOpen && (
+        <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />
+      )}
 
-   <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      {/* THANH BÊN (SIDEBAR) */}
+      <div className={`
+        fixed inset-y-0 left-0 z-50 transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+      `}>
+        <Sidebar
+          currentUser={currentUser}
+          projects={projects}
+          activeProject={activeProject}
+          onSelectProject={(p) => {
+            setActiveProject(p);
+            if (p) setViewMode(ViewMode.BOARD);
+            setIsSidebarOpen(false);
+          }}
+          dashboardView={dashboardView}
+          setDashboardView={(view) => {
+            setDashboardView(view);
+            setIsSidebarOpen(false);
+          }}
+          onLogout={handleLogout}
+          onToggleChat={() => setShowAuth(!showAuth)}
+          onCreateProject={() => setCreateProjectModalOpen(true)}
+          onOpenSettings={() => setIsUserSettingsOpen(true)}
+          onDeleteProject={handleDeleteProject}
+          onCloseMobile={() => setIsSidebarOpen(false)}
+        />
+      </div>
+
+      {/* NỘI DUNG CHÍNH (MAIN CONTENT) */}
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+        {/* Header di động */}
+        <div className="md:hidden flex items-center justify-between p-4 bg-slate-900 border-b border-slate-700 text-white">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setIsSidebarOpen(true)} className="p-2 -ml-2 text-slate-300 hover:text-white"><Menu size={24} /></button>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-white/10 backdrop-blur-md rounded-lg flex items-center justify-center border border-white/20 p-1 shadow-sm overflow-hidden">
+                <img src="/logo.png" alt="Meetly Logo" className="w-full h-full object-contain" />
+              </div>
+              <span className="font-bold text-lg tracking-tight">Meetly</span>
+            </div>
+          </div>
+        </div>
+
         {!activeProject ? (
-           // --- KHU VỰC GLOBAL (Khi chưa chọn Project) ---
-           
-           dashboardView === 'HOME' ? (
-              <Dashboard user={currentUser} tasks={tasks} projects={projects} />
-           ) : dashboardView === 'TIMELINE' ? (
-             <div className="flex flex-col h-full bg-white">
-                {/* ... header ... */}
-                <div className="flex-1 overflow-hidden">
-                    <TimelineView 
-                        tasks={tasks} 
-                        meetings={meetings} // <--- TRUYỀN TOÀN BỘ MEETINGS VÀO ĐÂY
-                    />
-                </div>
-             </div>
-           ) : dashboardView === 'TEAMS' ? (
-             <TeamsView 
-                currentUser={currentUser} 
-                projects={projects} 
-                tasks={tasks}
-                users={users}
-                
-                // Hàm mở modal tạo project
-                onCreateTeam={() => setCreateProjectModalOpen(true)} 
-                
-                // Hàm add member (Logic cũ của bồ)
-                onAddMember={handleAddMember}
-
-                // (Tùy chọn) Hàm này sẽ được gọi khi bấm nút "Go to Board" trong trang chi tiết
-                onOpenBoard={(project) => {
-                    setActiveProject(project);
-                    setViewMode(ViewMode.BOARD);
-                }}
-             />
-           ) : null
-           
+          // --- CHẾ ĐỘ XEM TỔNG QUAN (GLOBAL VIEWS) ---
+          dashboardView === 'HOME' ? (
+            <Dashboard user={currentUser} tasks={tasks} projects={projects} />
+          ) : dashboardView === 'TIMELINE' ? (
+            <div className="flex flex-col h-full bg-white">
+              <div className="flex-1 overflow-hidden">
+                <TimelineView tasks={tasks} meetings={meetings} />
+              </div>
+            </div>
+          ) : dashboardView === 'TEAMS' ? (
+            <TeamsView
+              currentUser={currentUser}
+              projects={projects}
+              tasks={tasks}
+              users={users}
+              onCreateTeam={() => setCreateProjectModalOpen(true)}
+              onAddMember={handleAddMember}
+              onRemoveMember={handleRemoveMember}
+              onOpenBoard={(project) => {
+                setActiveProject(project);
+                setViewMode(ViewMode.BOARD);
+              }}
+            />
+          ) : null
         ) : (
-          // --- KHU VỰC PROJECT (Khi đã chọn Project) ---
+          // --- CHẾ ĐỘ XEM TRONG DỰ ÁN (PROJECT SPECIFIC VIEWS) ---
           <>
-            {/* PROJECT HEADER */}
-            <header className="bg-white border-b border-slate-200 h-16 flex items-center justify-between px-6 flex-shrink-0">
-              <div className="flex items-center gap-4">
-                <h1 className="text-xl font-bold text-slate-800">{activeProject.name}</h1>
-                <div className="bg-slate-100 rounded-lg p-1 flex items-center">
-                  <button onClick={() => setViewMode(ViewMode.BOARD)} className={`p-1.5 rounded ${viewMode === 'BOARD' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`} title="Board"><Layout size={18}/></button>
-                  <button onClick={() => setViewMode(ViewMode.LIST)} className={`p-1.5 rounded ${viewMode === 'LIST' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`} title="List"><List size={18}/></button>
-                  <button onClick={() => setViewMode(ViewMode.TIMELINE)} className={`p-1.5 rounded ${viewMode === 'TIMELINE' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`} title="Timeline"><Clock size={18}/></button>
-                  <button onClick={() => setViewMode(ViewMode.TABLE)} className={`p-1.5 rounded ${viewMode === 'TABLE' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`} title="Table"><TableIcon size={18}/></button>
+            <header className="bg-white border-b border-slate-200 min-h-16 flex flex-col sm:flex-row items-start sm:items-center justify-between px-4 md:px-6 py-4 sm:py-0 flex-shrink-0 gap-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full sm:w-auto">
+                <h1 className="text-lg md:text-xl font-bold text-slate-800 truncate" title={activeProject.name}>{activeProject.name}</h1>
+                <div className="bg-slate-100 rounded-lg p-1 flex items-center overflow-x-auto max-w-full">
+                  <button onClick={() => setViewMode(ViewMode.BOARD)} className={`p-1.5 rounded ${viewMode === 'BOARD' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`} title="Board"><Layout size={18} /></button>
+                  <button onClick={() => setViewMode(ViewMode.LIST)} className={`p-1.5 rounded ${viewMode === 'LIST' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`} title="List"><List size={18} /></button>
+                  <button onClick={() => setViewMode(ViewMode.TIMELINE)} className={`p-1.5 rounded ${viewMode === 'TIMELINE' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`} title="Timeline"><Clock size={18} /></button>
+                  <button onClick={() => setViewMode(ViewMode.TABLE)} className={`p-1.5 rounded ${viewMode === 'TABLE' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`} title="Table"><TableIcon size={18} /></button>
                   <div className="w-px h-4 bg-slate-300 mx-1"></div>
-                  <button onClick={() => setViewMode(ViewMode.MEETING)} className={`p-1.5 rounded ${viewMode === 'MEETING' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`} title="Meetings"><Video size={18}/></button>
+                  <button onClick={() => setViewMode(ViewMode.MEETING)} className={`p-1.5 rounded ${viewMode === 'MEETING' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`} title="Meetings"><Video size={18} /></button>
                 </div>
               </div>
-              <div className="flex items-center gap-4">
-                <button 
-                    onClick={() => viewMode === 'MEETING' ? setMeetingModalOpen(true) : setTaskModalOpen(true)}
-                    className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-indigo-700 flex items-center gap-2 shadow-sm shadow-indigo-200 transition"
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => viewMode === 'MEETING' ? setMeetingModalOpen(true) : setTaskModalOpen(true)}
+                  className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 flex items-center gap-2 shadow-sm transition"
                 >
-                  <Plus size={18} /> 
-                  {viewMode === 'MEETING' ? 'Schedule Meeting' : 'Create Task'}
+                  <Plus size={16} />
+                  <span>{viewMode === 'MEETING' ? 'Schedule' : 'Create'}</span>
                 </button>
-                <Settings className="text-slate-400 cursor-pointer hover:text-slate-600" size={20} />
               </div>
             </header>
 
-            {/* PROJECT VIEWS CONTENT */}
             <div className="flex-1 overflow-y-auto bg-slate-50 relative">
               {viewMode === 'BOARD' && (
-                <BoardView 
-                  tasks={currentProjectTasks} 
-                  columns={boardColumns}
-                  users={users}
-                  onMove={handleTaskMove} 
-                  onNew={() => setTaskModalOpen(true)} 
-                  onEdit={handleOpenEditTask} 
-                  onAddColumn={() => setAddColumnModalOpen(true)} 
-                  onEditColumn={handleOpenEditColumn}
-                />
+                <BoardView tasks={currentProjectTasks} columns={boardColumns} users={users} onMove={handleTaskMove} onNew={() => setTaskModalOpen(true)} onEdit={(t) => { setTaskToEdit(t); setEditTaskModalOpen(true); }} onAddColumn={() => setAddColumnModalOpen(true)} onEditColumn={(c) => { setCurrentEditingColumn(c); setEditColumnModalOpen(true); }} onDelete={handleDeleteTask} />
               )}
-              {viewMode === 'LIST' && (
-                <ListView 
-                    tasks={currentProjectTasks} 
-                    users={users} 
-                    projects={projects} 
-                    onEdit={handleOpenEditTask} 
-                />
-               )}
-              {viewMode === 'TABLE' && <TableView tasks={currentProjectTasks} users={users} />}
-              {viewMode === 'TABLE' && <TableView tasks={currentProjectTasks} users={users} />}
-              
-              {viewMode === 'TIMELINE' && (
-                  <TimelineView 
-                      tasks={currentProjectTasks} 
-                      meetings={currentProjectMeetings} // <--- TRUYỀN PROJECT MEETINGS VÀO ĐÂY
-                  />
-              )}
-              
-              {viewMode === 'MEETING' && (
-                <MeetingView 
-                  meetings={currentProjectMeetings} 
-                  currentUser={currentUser} 
-                  onOpenDetail={() => {}} 
-                />
-              )}
+              {viewMode === 'LIST' && <ListView tasks={currentProjectTasks} users={users} projects={projects} onEdit={(t) => { setTaskToEdit(t); setEditTaskModalOpen(true); }} onDelete={handleDeleteTask} />}
+              {viewMode === 'TABLE' && <TableView tasks={currentProjectTasks} users={users} onDelete={handleDeleteTask} />}
+              {viewMode === 'TIMELINE' && <TimelineView tasks={currentProjectTasks} meetings={currentProjectMeetings} />}
+              {viewMode === 'MEETING' && <MeetingView meetings={currentProjectMeetings} currentUser={currentUser} onOpenDetail={() => { }} onDelete={handleDeleteMeeting} />}
             </div>
           </>
         )}
       </main>
 
-      {/* Floating Chat (Placeholder) */}
-      <ChatWidget projectId={activeProject?.id} />
+      {/* AI CHAT WIDGET */}
+      <ChatWidget projectId={activeProject?.id} onRefresh={refreshData} />
 
-      {/* Modals placeholders */}
-      {isTaskModalOpen && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center">
-             <div className="bg-white p-8 rounded">
-                 <h2>Task Modal ({editingTask ? 'Edit' : 'Create'})</h2>
-                 <button onClick={() => { setTaskModalOpen(false); setEditingTask(null); }}>Close</button>
-             </div>
-        </div>
-      )}
+      {/* CỬA SỔ CHỨC NĂNG (MODALS) */}
+      <UserSettings isOpen={isUserSettingsOpen} currentUser={currentUser} onUpdateUser={login} onClose={() => setIsUserSettingsOpen(false)} />
 
-      {isUserSettingsOpen && (
-          <UserSettings 
-            currentUser={currentUser} 
-      // 👇 Sửa dòng này: thay setCurrentUser bằng login
-            onUpdateUser={login} 
-            onClose={() => setIsUserSettingsOpen(false)}
-          />
-      )}    
-        <CreateProjectModal 
-          isOpen={isCreateProjectModalOpen}
-          onClose={() => setCreateProjectModalOpen(false)}
-          onCreate={handleCreateProject}
-          users={users}
-          currentUser={currentUser!}
-      />
+      <CreateProjectModal isOpen={isCreateProjectModalOpen} onClose={() => setCreateProjectModalOpen(false)} onCreate={handleCreateProject} users={users} currentUser={currentUser!} />
 
-      <CreateTaskModal 
-        isOpen={isTaskModalOpen}
-        onClose={() => { setTaskModalOpen(false); setEditingTask(null); }}
-        onCreate={handleCreateTask}
-        users={users}
-        activeProject={activeProject}
-      />
-    {/* Add Column Modal */}
-      <AddColumnModal 
-        isOpen={isAddColumnModalOpen}
-        onClose={() => setAddColumnModalOpen(false)}
-        onAdd={handleAddColumn}
-      />
-    {/* Edit Column Modal */}
-      <EditColumnModal 
-        isOpen={isEditColumnModalOpen}
-        onClose={() => setEditColumnModalOpen(false)}
-        initialTitle={currentEditingColumn}
-        onRename={handleRenameColumn}
-        onDelete={handleDeleteColumn}
-      />
+      <CreateTaskModal isOpen={isTaskModalOpen} onClose={() => setTaskModalOpen(false)} onCreate={handleCreateTask} users={users} activeProject={activeProject} />
 
-       {/* Edit Task Modal */}
-      <EditTaskModal 
-        isOpen={isEditTaskModalOpen}
-        onClose={() => { setEditTaskModalOpen(false); setTaskToEdit(null); }}
-        onSave={handleUpdateTask}
-        users={users}
-        task={taskToEdit}
-      />
+      <AddColumnModal isOpen={isAddColumnModalOpen} onClose={() => setAddColumnModalOpen(false)} onAdd={(c) => setBoardColumns([...boardColumns, c])} />
 
-      {/* Create Meeting Modal */}
-      <CreateMeetingModal 
-        isOpen={isMeetingModalOpen}
-        onClose={() => setMeetingModalOpen(false)}
-        onCreate={handleCreateMeeting}
-        users={users}
-        activeProject={activeProject}
-      />
+      <EditColumnModal isOpen={isEditColumnModalOpen} onClose={() => setEditColumnModalOpen(false)} initialTitle={currentEditingColumn} onRename={handleRenameColumn} onDelete={() => { setBoardColumns(boardColumns.filter(c => c !== currentEditingColumn)); setEditColumnModalOpen(false); }} />
 
-      
+      <EditTaskModal isOpen={isEditTaskModalOpen} onClose={() => { setEditTaskModalOpen(false); setTaskToEdit(null); }} onSave={async (id, up) => { await api.updateTask(id, up); setTasks(tasks.map(t => t.id === id ? { ...t, ...up } : t)); setEditTaskModalOpen(false); }} users={users} task={taskToEdit} />
+
+      <CreateMeetingModal isOpen={isMeetingModalOpen} onClose={() => setMeetingModalOpen(false)} onCreate={handleCreateMeeting} users={users} activeProject={activeProject} />
     </div>
-   
-    
   );
 }
